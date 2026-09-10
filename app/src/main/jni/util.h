@@ -40,13 +40,13 @@ class Matrix4x4 {
 
   // Encadeia transformacoes (mesma semantica do sample do Cardboard):
   // `a * b` le-se "a a partir de b" na cadeia de transformacoes.
-  Matrix4x4 operator*(const Matrix4x4& right);
+  Matrix4x4 operator*(const Matrix4x4& right) const;
 
   // Transforma um ponto/vetor (x,y,z,w).
-  std::array<float, 4> operator*(const std::array<float, 4>& vec);
+  std::array<float, 4> operator*(const std::array<float, 4>& vec) const;
 
   // Converte para array de floats para o OpenGL.
-  std::array<float, 16> ToGlArray();
+  std::array<float, 16> ToGlArray() const;
 };
 
 struct Quatf {

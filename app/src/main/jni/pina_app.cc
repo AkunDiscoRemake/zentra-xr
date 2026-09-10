@@ -9,6 +9,7 @@
 
 #include "pina_app.h"
 
+#include <android/asset_manager_jni.h>
 #include <android/log.h>
 
 #include <algorithm>
