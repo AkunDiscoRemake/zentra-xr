@@ -1,0 +1,127 @@
+name: ZENTRA XR - Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'beta*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name (e.g. 1.0.0-beta1)'
+        required: false
+        default: '1.0.0-beta1'
+
+jobs:
+  build-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: Generate Wrapper
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle wrapper --gradle-version 8.4 --distribution-type bin
+          fi
+          chmod +x gradlew
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Download MediaPipe Model
+        run: |
+          mkdir -p app/src/main/assets
+          curl -L --retry 3 -o app/src/main/assets/hand_landmarker.task \
+            https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker_lite.task || echo "Model download failed, continuing with fallback"
+
+      - name: Build Debug and Release APKs
+        run: |
+          ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+          ls -lh app/build/outputs/apk/debug/
+          ls -lh app/build/outputs/apk/release/
+
+      - name: Rename APKs for Release
+        run: |
+          VERSION=${{ inputs.version || github.ref_name || '1.0.0-beta1' }}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          cp app/build/outputs/apk/debug/app-debug.apk zentra-xr-${VERSION}-debug.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk zentra-xr-${VERSION}-release-unsigned.apk || cp app/build/outputs/apk/release/app-release.apk zentra-xr-${VERSION}-release.apk || echo "release apk not found"
+          ls -lh *.apk
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version || github.ref_name || 'v1.0.0-beta1' }}
+          name: ZENTRA XR ${{ env.VERSION }} - Beta 1
+          body: |
+            ## ZENTRA XR Beta 1 - Mixed Reality OS para VR Box
+
+            ### 📦 APKs
+            - **Debug APK**: `zentra-xr-${{ env.VERSION }}-debug.apk` - para testes
+            - **Release APK**: `zentra-xr-${{ env.VERSION }}-release-unsigned.apk`
+
+            ### 🎯 Fluxo Beta 1
+            ```
+            CÂMERA → MÃO → JOY-CON VIRTUAL → APONTADOR → PINCH → UI
+            ```
+
+            ### ✨ Features
+            - ✅ Câmera MR como fundo (baixa latência)
+            - ✅ Cardboard REAL SDK 1.20.0
+            - ✅ Hand Tracking MediaPipe local
+            - ✅ Joy-Con virtual (não mão humana)
+            - ✅ Pointer + Pinch
+            - ✅ UI espacial glassmorphism
+            - ✅ ZENTRA Browser
+
+            ### 📱 Como instalar
+            ```bash
+            adb install zentra-xr-${{ env.VERSION }}-debug.apk
+            ```
+
+            ### 🔒 Privacidade
+            - Sem analytics
+            - Câmera local apenas
+            - Sem envio para servidores
+
+            **Build:** ${{ github.sha }}
+          files: |
+            zentra-xr-*.apk
+            app/build/outputs/apk/debug/app-debug.apk
+          draft: false
+          prerelease: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifacts (for non-tag builds)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zentra-xr-release-apks-${{ env.VERSION }}
+          path: |
+            zentra-xr-*.apk
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/*.apk
+          retention-days: 30

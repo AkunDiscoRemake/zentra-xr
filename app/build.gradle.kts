@@ -19,7 +19,8 @@ android {
             useSupportLibrary = true
         }
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters.add("arm64-v8a")
+            abiFilters.add("armeabi-v7a")
         }
     }
 
@@ -92,8 +93,7 @@ dependencies {
 
     // MediaPipe Tasks Vision - Hand Tracking
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
-    // MediaPipe GPU delegate (optional for performance)
-    implementation("com.google.mediapipe:tasks-vision-gpu:0.10.14")
+    // Note: GPU delegate is included in tasks-vision, no separate artifact needed for Beta 1
 
     // WebKit for Zentra Browser
     implementation("androidx.webkit:webkit:1.8.0")

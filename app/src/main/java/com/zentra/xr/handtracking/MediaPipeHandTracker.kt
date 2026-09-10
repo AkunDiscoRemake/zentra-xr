@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.Executors
 import kotlin.math.atan2
 import kotlin.math.hypot
-import kotlin.math.sqrt
 
 /**
  * ZENTRA XR - Hand Tracking Module
@@ -24,6 +23,7 @@ import kotlin.math.sqrt
  * - Async, low latency
  * - Joy-Con representation instead of human hands
  * - Optimized: downscaled input, reusable bitmap, throttling
+ * - Compatible with MediaPipe 0.10.x API (landmarks + handedness)
  */
 class MediaPipeHandTracker(
     private val context: Context
@@ -78,10 +78,8 @@ class MediaPipeHandTracker(
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to init HandLandmarker, trying fallback without asset", e)
-            // Fallback: try default model loading if asset not bundled (for dev)
             try {
-                val baseOptions = BaseOptions.builder()
-                    .build()
+                val baseOptions = BaseOptions.builder().build()
                 val options = HandLandmarker.HandLandmarkerOptions.builder()
                     .setBaseOptions(baseOptions)
                     .setRunningMode(RunningMode.IMAGE)
@@ -120,11 +118,6 @@ class MediaPipeHandTracker(
     }
 
     private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap? {
-        // Convert YUV_420_888 to Bitmap - optimized path
-        // For performance, we downscale already in CameraX to 320x240
-        // Here we convert efficiently
-
-        // Ensure reusable bitmap
         val width = imageProxy.width
         val height = imageProxy.height
 
@@ -137,7 +130,6 @@ class MediaPipeHandTracker(
 
         val bitmap = reusableBitmap ?: return null
 
-        // Fast YUV to RGB conversion (simplified - use ImageProxy's planes)
         try {
             val yBuffer = imageProxy.planes[0].buffer
             val uBuffer = imageProxy.planes[1].buffer
@@ -153,19 +145,14 @@ class MediaPipeHandTracker(
             vBuffer.get(nv21, ySize, vSize)
             uBuffer.get(nv21, ySize + vSize, uSize)
 
-            // Convert NV21 to bitmap using simple loop - for Beta we use Android's YuvImage as fallback
-            // But to keep low latency, we use a quick approximation
-            // Note: in production, use RenderScript or libyuv
-            // Here: fill bitmap with converted data (simplified)
             val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
             val out = java.io.ByteArrayOutputStream()
             yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 80, out)
             val jpegBytes = out.toByteArray()
             val bmp = android.graphics.BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
 
-            // Rotate based on imageProxy rotation
             val rotation = imageProxy.imageInfo.rotationDegrees
-            val rotated = if (rotation != 0) {
+            val rotated = if (rotation != 0 && bmp != null) {
                 val mat = Matrix()
                 mat.postRotate(rotation.toFloat())
                 Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, mat, true).also {
@@ -173,14 +160,14 @@ class MediaPipeHandTracker(
                 }
             } else bmp
 
-            // Copy to reusable bitmap for consistency
+            if (rotated == null) return null
+
             if (rotated.width == bitmap.width && rotated.height == bitmap.height) {
                 val canvas = android.graphics.Canvas(bitmap)
                 canvas.drawBitmap(rotated, 0f, 0f, null)
                 if (rotated != bitmap) rotated.recycle()
                 return bitmap
             } else {
-                // Size mismatch due to rotation, recreate
                 reusableBitmap = rotated
                 bitmapWidth = rotated.width
                 bitmapHeight = rotated.height
@@ -210,16 +197,47 @@ class MediaPipeHandTracker(
                 lastFrameTime = timestampMs
             }
 
-            result.detections().forEachIndexed { idx, detection ->
-                val handedness = result.handednesses().getOrNull(idx)?.firstOrNull()?.categoryName() ?: "Unknown"
+            // MediaPipe 0.10.x API: result.landmarks() and result.handedness()
+            // Each is List<List<...>> where outer list = hands
+            val allLandmarks = try {
+                result.landmarks()
+            } catch (e: Exception) {
+                Log.w(TAG, "landmarks() failed, trying detections() fallback", e)
+                // Fallback for older API that uses detections()
+                try {
+                    val detections = result.javaClass.getMethod("detections").invoke(result) as? List<*>
+                    detections?.mapNotNull { det ->
+                        try {
+                            val m = det?.javaClass?.getMethod("landmarks")?.invoke(det) as? List<*>
+                            m as? List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>
+                        } catch (_: Exception) { null }
+                    } ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+
+            val allHandedness = try {
+                result.handedness()
+            } catch (e: Exception) {
+                Log.w(TAG, "handedness() failed, trying handednesses() fallback", e)
+                try {
+                    result.javaClass.getMethod("handednesses").invoke(result) as? List<List<com.google.mediapipe.tasks.components.containers.Category>>
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+
+            allLandmarks.forEachIndexed { idx, landmarks ->
+                if (landmarks.size < 21) return@forEachIndexed
+
+                val handednessList = allHandedness.getOrNull(idx)
+                val handednessName = handednessList?.firstOrNull()?.categoryName() ?: "Unknown"
                 val side = when {
-                    handedness.contains("Left", true) -> HandSide.LEFT
-                    handedness.contains("Right", true) -> HandSide.RIGHT
+                    handednessName.contains("Left", true) -> HandSide.LEFT
+                    handednessName.contains("Right", true) -> HandSide.RIGHT
                     else -> if (idx == 0) HandSide.LEFT else HandSide.RIGHT
                 }
-
-                val landmarks = detection.landmarks() // 21 points
-                if (landmarks.size < 21) return@forEachIndexed
 
                 // Extract key points (normalized 0..1)
                 val wrist = PointF(landmarks[0].x(), landmarks[0].y())
@@ -227,13 +245,11 @@ class MediaPipeHandTracker(
                 val indexTip = PointF(landmarks[8].x(), landmarks[8].y())
                 val middleMcp = PointF(landmarks[9].x(), landmarks[9].y())
 
-                // Center for Joy-Con = palm center approx (avg of wrist + middle MCP)
                 val rawCenter = PointF(
                     (wrist.x + middleMcp.x) / 2f,
                     (wrist.y + middleMcp.y) / 2f
                 )
 
-                // Apply smoothing
                 val smoothedCenter = when (side) {
                     HandSide.LEFT -> leftFilter.filter(rawCenter, timestampSec)
                     HandSide.RIGHT -> rightFilter.filter(rawCenter, timestampSec)
@@ -245,23 +261,19 @@ class MediaPipeHandTracker(
                     else -> indexTip
                 }
 
-                // Rotation: angle from wrist to middle finger
                 val rot = atan2(
                     (middleMcp.y - wrist.y).toDouble(),
                     (middleMcp.x - wrist.x).toDouble()
-                ).toFloat() * 57.2958f // rad to deg
+                ).toFloat() * 57.2958f
 
-                // Pinch detection: distance thumb tip <-> index tip
                 val pinchDist = hypot(
                     (thumbTip.x - indexTip.x).toDouble(),
                     (thumbTip.y - indexTip.y).toDouble()
                 ).toFloat()
 
-                // Normalized pinch - threshold ~0.05
                 val isPinching = pinchDist < 0.05f
                 val pinchStrength = (1f - (pinchDist / 0.1f).coerceIn(0f, 1f))
 
-                // Scale based on hand size (distance wrist to middle tip)
                 val middleTip = PointF(landmarks[12].x(), landmarks[12].y())
                 val handSize = hypot(
                     (middleTip.x - wrist.x).toDouble(),
@@ -269,12 +281,14 @@ class MediaPipeHandTracker(
                 ).toFloat()
                 val scale = (handSize * 3f).coerceIn(0.6f, 1.4f)
 
+                val confidence = handednessList?.firstOrNull()?.score() ?: 0.8f
+
                 val joyCon = JoyConPose(
                     side = side,
                     center = smoothedCenter,
                     rotationDegrees = rot,
                     scale = scale,
-                    confidence = detection.categories().firstOrNull()?.score() ?: 0.8f,
+                    confidence = confidence,
                     isPinching = isPinching,
                     pinchStrength = pinchStrength,
                     indexTip = smoothedIndex,
