@@ -56,11 +56,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Cardboard Viewer Profile Generator (for headset config) -->
-        <activity
-            android:name="com.google.cardboard.sdk.QrCodeCaptureActivity"
-            android:screenOrientation="portrait"
-            android:exported="false" />
+        <!-- Cardboard Viewer Profile Generator - handled via intent in CardboardManager, not declared here to avoid merger issues with different SDK versions -->
 
     </application>
 
