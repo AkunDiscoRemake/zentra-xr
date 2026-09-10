@@ -1,0 +1,4 @@
+# Copy this to local.properties and set your Android SDK path
+# sdk.dir=/home/user/Android/Sdk
+# For this Beta 1 prototype, Android Studio will auto-generate local.properties
+sdk.dir=/opt/android-sdk

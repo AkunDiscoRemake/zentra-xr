@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="zentra_black">#FF0A0A0F</color>
+    <color name="zentra_dark">#FF12121A</color>
+    <color name="zentra_surface">#FF1C1C25</color>
+    <color name="zentra_surface_glass">#CC1E1E2A</color>
+    <color name="zentra_accent">#FF7C5CFF</color>
+    <color name="zentra_accent_glow">#667C5CFF</color>
+    <color name="zentra_text_primary">#FFFFFFFF</color>
+    <color name="zentra_text_secondary">#FF9AA0B0</color>
+    <color name="zentra_border">#1AFFFFFF</color>
+    <color name="zentra_joycon_left">#FF3ABFFF</color>
+    <color name="zentra_joycon_right">#FFFF5C7C</color>
+    <color name="zentra_pointer">#FF7C5CFF</color>
+    <color name="zentra_pointer_hover">#FFFFFFFF</color>
+</resources>

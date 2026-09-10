@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+app/build/
+**/build/
+
+# Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+local.properties
+*.ap_
+*.aab
+
+# Assets that are large and should be downloaded separately
+app/src/main/assets/hand_landmarker*.task
+app/src/main/assets/*.tflite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keystore
+*.jks
+*.keystore
+
+# Logs
+*.log

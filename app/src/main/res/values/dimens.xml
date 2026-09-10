@@ -1,0 +1,9 @@
+<resources>
+    <dimen name="spatial_panel_corner">28dp</dimen>
+    <dimen name="spatial_button_corner">18dp</dimen>
+    <dimen name="spatial_dock_corner">28dp</dimen>
+    <dimen name="joycon_width">56dp</dimen>
+    <dimen name="joycon_height">80dp</dimen>
+    <dimen name="pointer_dot">10dp</dimen>
+    <dimen name="pointer_glow">32dp</dimen>
+</resources>

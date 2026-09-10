@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">ZENTRA XR</string>
+    <string name="app_version">Beta 1</string>
+    <string name="home_title">ZENTRA XR</string>
+    <string name="home_subtitle">MIXED REALITY OS • BETA 1</string>
+    <string name="browser">Browser</string>
+    <string name="settings">Settings</string>
+    <string name="permission_camera_title">Acesso à câmera necessário</string>
+    <string name="permission_camera_desc">O ZENTRA XR precisa da câmera para criar a experiência de Mixed Reality. As imagens nunca são enviadas para servidores.</string>
+    <string name="permission_grant">Permitir câmera</string>
+    <string name="error_no_camera">Câmera não encontrada neste dispositivo</string>
+    <string name="error_no_sensors">Sensores IMU insuficientes para modo Cardboard</string>
+    <string name="error_low_device">Dispositivo pode não ter desempenho suficiente para hand tracking estável</string>
+    <string name="browser_hint">Digite URL ou pesquisa…</string>
+    <string name="browser_back">Voltar</string>
+    <string name="browser_forward">Avançar</string>
+    <string name="browser_reload">Recarregar</string>
+    <string name="browser_home">Início</string>
+    <string name="pinch_to_click">Pinch para clicar</string>
+    <string name="point_with_index">Aponte com o indicador</string>
+</resources>

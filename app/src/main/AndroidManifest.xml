@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ZENTRA XR Beta 1 - Permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Camera features -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+
+    <!-- Sensors for Cardboard IMU -->
+    <uses-feature
+        android:name="android.hardware.sensor.accelerometer"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.sensor.gyroscope"
+        android:required="true" />
+
+    <!-- OpenGL ES 3.0 for MR Renderer -->
+    <uses-feature
+        android:glEsVersion="0x00030000"
+        android:required="true" />
+
+    <application
+        android:name=".ZentraApplication"
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher_zentra"
+        android:roundIcon="@drawable/ic_launcher_zentra"
+        android:label="ZENTRA XR"
+        android:theme="@style/Theme.ZentraXR"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
+        android:usesCleartextTraffic="false"
+        android:requestLegacyExternalStorage="false"
+        tools:targetApi="31">
+
+        <!-- Main Activity - MR Experience -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout"
+            android:launchMode="singleTask"
+            android:keepScreenOn="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Cardboard Viewer Profile Generator (for headset config) -->
+        <activity
+            android:name="com.google.cardboard.sdk.QrCodeCaptureActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+    </application>
+
+</manifest>
