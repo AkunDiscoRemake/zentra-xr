@@ -4,11 +4,24 @@
 >
 > Câmera + Hand Tracking + Joy-Con Virtual + Pointer + Pinch + UI Espacial + Cardboard REAL
 
+![Build](https://github.com/AkunDiscoRemake/zentra-xr/actions/workflows/build.yml/badge.svg)
 ![ZENTRA XR](https://img.shields.io/badge/ZENTRA%20XR-Beta%201-7C5CFF?style=for-the-badge)
 ![Android](https://img.shields.io/badge/Android-Nativo-3DDC84?style=flat-square&logo=android)
 ![Kotlin](https://img.shields.io/badge/Kotlin-1.9.22-7F52FF?style=flat-square&logo=kotlin)
 ![Cardboard](https://img.shields.io/badge/Cardboard-REAL%20SDK-FF7139?style=flat-square&logo=google)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-Hand%20Tracking-0091EA?style=flat-square)
+
+### 📥 APK via GitHub Actions
+
+O projeto compila automaticamente via **GitHub Actions**:
+
+1. Vá em **Actions** > **ZENTRA XR - Build Beta 1** > último workflow
+2. Baixe o artifact `zentra-xr-beta1-debug-apk`
+3. Instale: `adb install app-debug.apk`
+
+Ou compile local: `./gradlew assembleDebug` (APK em `app/build/outputs/apk/debug/`)
+
+Ver `.github/workflows/build.yml` e `docs/BUILD_INSTRUCTIONS.md`
 
 ---
 
