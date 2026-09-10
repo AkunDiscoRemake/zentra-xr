@@ -85,20 +85,68 @@ jobs:
       - name: Build Debug APK (with log capture)
         run: |
           set +e
-          ./gradlew assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tee build-debug.log
+          ./gradlew assembleDebug --stacktrace --info --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tee build-debug.log
           EXIT_CODE=${PIPESTATUS[0]}
           echo "Gradle exit code: $EXIT_CODE"
           ls -lh app/build/outputs/apk/debug/ || echo "No debug APK yet"
+          # Always show last 300 lines for debugging
+          echo "=== LAST 300 LINES OF BUILD LOG ==="
+          tail -n 300 build-debug.log
+          echo "=== END LOG ==="
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "=== BUILD FAILED - LAST 200 LINES ==="
-            tail -n 200 build-debug.log
-            echo "=== END LOG ==="
-            # Also try to find error files
+            echo "=== FINDING ERROR CAUSE ==="
+            grep -i -A 5 -B 5 "error\|FAILED\|Could not\|not found\|unresolved" build-debug.log | tail -n 200 || true
             find app/build -name "*.log" | head -n 20
-            cat app/build/outputs/logs/*.txt 2>/dev/null | tail -n 100 || true
             exit $EXIT_CODE
           fi
           exit 0
+
+      - name: Create Issue with Logs on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let logContent = 'No log file';
+            try {
+              const log = fs.readFileSync('build-debug.log', 'utf8');
+              const lines = log.split('\n');
+              const tail = lines.slice(-500).join('\n');
+              logContent = tail.slice(-60000); // limit to 60k chars for issue
+            } catch (e) {
+              logContent = 'Failed to read log: ' + e.message;
+            }
+            const body = `## Build Failed - ZENTRA XR Beta 1
+            
+            **Run:** ${{ github.run_id }}
+            **Branch:** ${{ github.ref }}
+            **Commit:** ${{ github.sha }}
+            
+            ### Last 500 lines of build log:
+            \`\`\`
+            ${logContent}
+            \`\`\`
+            
+            ### Possible causes checked:
+            - Cardboard SDK removed from Maven (fixed with local implementation)
+            - MediaPipe tasks-vision should exist (0.10.14)
+            - Gradle wrapper generated
+            - local.properties created
+            
+            Please check full logs in Actions tab.
+            `;
+            try {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Build failed - Run ${{ github.run_id }}`,
+                body: body,
+                labels: ['build-failure', 'ci']
+              });
+            } catch (e) {
+              console.log('Failed to create issue: ' + e.message);
+              console.log(body);
+            }
 
       - name: Build Release APK (unsigned, for testing)
         if: success()
