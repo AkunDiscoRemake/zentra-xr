@@ -1,5 +1,7 @@
 # Pina XR 🍍🥽
 
+[![Build APK](https://github.com/AkunDiscoRemake/zentra-xr/actions/workflows/android.yml/badge.svg)](https://github.com/AkunDiscoRemake/zentra-xr/actions/workflows/android.yml)
+
 **Pina XR** é um app Android **100% VR estéreo (Google Cardboard) com Mixed
 Reality**: o mundo real aparece via passthrough da câmera frontal (Camera2),
 suas mãos aparecem como um **esqueleto 3D** (MediaPipe Hand Landmarker) e você
