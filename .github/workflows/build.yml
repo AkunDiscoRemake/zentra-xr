@@ -90,18 +90,32 @@ jobs:
       - name: Build Debug APK (with log capture)
         run: |
           set +e
-          ./gradlew assembleDebug --stacktrace --info --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tee build-debug.log
+          echo "=== Step 1: Compile Kotlin ==="
+          ./gradlew compileDebugKotlin --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tee compile.log
+          COMPILE_EXIT=${PIPESTATUS[0]}
+          echo "Compile exit code: $COMPILE_EXIT"
+          echo "=== COMPILE LOG TAIL ==="
+          tail -n 500 compile.log
+          echo "=== KOTLIN ERRORS ==="
+          grep -n "e: file://" compile.log | head -n 100 || echo "No e: file:// errors found"
+          grep -n "Unresolved reference\|Cannot access\|Type mismatch\|Overload resolution" compile.log | head -n 200 || echo "No obvious Kotlin errors"
+          
+          if [ $COMPILE_EXIT -ne 0 ]; then
+            echo "Kotlin compilation failed, not proceeding to APK"
+            cp compile.log build-debug.log
+            exit $COMPILE_EXIT
+          fi
+          
+          echo "=== Step 2: Assemble APK ==="
+          ./gradlew assembleDebug --stacktrace --no-daemon -Dorg.gradle.jvmargs="-Xmx4g" 2>&1 | tee build-debug.log
           EXIT_CODE=${PIPESTATUS[0]}
           echo "Gradle exit code: $EXIT_CODE"
           ls -lh app/build/outputs/apk/debug/ || echo "No debug APK yet"
-          # Always show last 300 lines for debugging
           echo "=== LAST 300 LINES OF BUILD LOG ==="
           tail -n 300 build-debug.log
-          echo "=== END LOG ==="
           if [ $EXIT_CODE -ne 0 ]; then
             echo "=== FINDING ERROR CAUSE ==="
-            grep -i -A 5 -B 5 "error\|FAILED\|Could not\|not found\|unresolved" build-debug.log | tail -n 200 || true
-            find app/build -name "*.log" | head -n 20
+            grep -i -A 10 -B 10 "FAILED\|Could not\|not found\|unresolved\|error:" build-debug.log | tail -n 300 || true
             exit $EXIT_CODE
           fi
           exit 0
