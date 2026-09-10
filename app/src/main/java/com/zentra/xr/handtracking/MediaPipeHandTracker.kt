@@ -200,10 +200,9 @@ class MediaPipeHandTracker(
             // MediaPipe 0.10.x API: result.landmarks() and result.handedness()
             // Each is List<List<...>> where outer list = hands
             val allLandmarks = try {
-                result.landmarks()
+                result.landmarks() ?: emptyList()
             } catch (e: Exception) {
                 Log.w(TAG, "landmarks() failed, trying detections() fallback", e)
-                // Fallback for older API that uses detections()
                 try {
                     val detections = result.javaClass.getMethod("detections").invoke(result) as? List<*>
                     detections?.mapNotNull { det ->
@@ -218,11 +217,11 @@ class MediaPipeHandTracker(
             }
 
             val allHandedness = try {
-                result.handedness()
+                result.handedness() ?: emptyList()
             } catch (e: Exception) {
                 Log.w(TAG, "handedness() failed, trying handednesses() fallback", e)
                 try {
-                    result.javaClass.getMethod("handednesses").invoke(result) as? List<List<com.google.mediapipe.tasks.components.containers.Category>>
+                    (result.javaClass.getMethod("handednesses").invoke(result) as? List<List<com.google.mediapipe.tasks.components.containers.Category>>) ?: emptyList()
                 } catch (_: Exception) {
                     emptyList()
                 }
