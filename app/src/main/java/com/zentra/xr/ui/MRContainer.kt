@@ -42,7 +42,6 @@ fun MRContainer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
 
     var currentScreen by remember { mutableStateOf(ZentraScreen.HOME) }
     var trackingFrame by remember { mutableStateOf<com.zentra.xr.handtracking.TrackingFrame?>(null) }

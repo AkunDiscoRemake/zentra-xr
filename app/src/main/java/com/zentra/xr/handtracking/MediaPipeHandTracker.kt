@@ -232,7 +232,7 @@ class MediaPipeHandTracker(
                 if (landmarks.size < 21) return@forEachIndexed
 
                 val handednessList = allHandedness.getOrNull(idx)
-                val handednessName = handednessList?.firstOrNull()?.categoryName() ?: "Unknown"
+                val handednessName = handednessList?.firstOrNull()?.let { it.categoryName() } ?: "Unknown"
                 val side = when {
                     handednessName.contains("Left", true) -> HandSide.LEFT
                     handednessName.contains("Right", true) -> HandSide.RIGHT
@@ -281,7 +281,7 @@ class MediaPipeHandTracker(
                 ).toFloat()
                 val scale = (handSize * 3f).coerceIn(0.6f, 1.4f)
 
-                val confidence = handednessList?.firstOrNull()?.score() ?: 0.8f
+                val confidence = handednessList?.firstOrNull()?.let { it.score() } ?: 0.8f
 
                 val joyCon = JoyConPose(
                     side = side,
