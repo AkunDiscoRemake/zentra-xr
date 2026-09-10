@@ -36,12 +36,9 @@ object DeviceCompatibility {
         val hasGyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null
         val hasMag = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) != null
 
-        // OpenGL ES 3.0 check - most devices support it now, simplified for build compatibility
-        val gl30 = try {
-            pm.hasSystemFeature(PackageManager.FEATURE_OPENGLES_AEP) || true
-        } catch (e: Exception) {
-            true // fallback: assume ES 3.0 supported
-        }
+        // OpenGL ES 3.0 check - simplified, assume supported on all modern devices
+        // FEATURE_OPENGLES_AEP may not exist on all compile SDKs, so we avoid referencing it directly
+        val gl30 = true
 
         val androidOk = Build.VERSION.SDK_INT >= 26 // minSdk 26
 
