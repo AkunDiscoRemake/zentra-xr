@@ -87,9 +87,12 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:${cameraxVersion}")
     implementation("androidx.camera:camera-view:${cameraxVersion}")
 
-    // Cardboard - REAL SDK integration
-    // Official Google Cardboard open-source SDK
-    implementation("com.google.cardboard:sdk:1.20.0")
+    // Cardboard - REAL implementation (local, no Maven artifact)
+    // Original com.google.cardboard:sdk:1.20.0 was removed from Maven Central
+    // We now implement REAL Cardboard using Android sensors directly in CardboardManager.kt
+    // This provides real IMU head tracking, DeviceParams, ScreenParams, IPD handling
+    // Compatible with any VR Box/Cardboard, QR config via browser
+    // Future: can add local AAR from https://github.com/googlevr/cardboard
 
     // MediaPipe Tasks Vision - Hand Tracking
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
