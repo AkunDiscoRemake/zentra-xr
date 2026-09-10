@@ -1,0 +1,61 @@
+# Pina XR - build do APK via GitHub Actions.
+#
+# O Cardboard SDK vem do submódulo git (cardboard/), o modelo do MediaPipe é
+# baixado pelo task downloadHandModel e a lib nativa do Cardboard é extraída
+# pelo task extractNdk (tudo automático no fluxo Gradle).
+
+name: Build APK
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Gradle (debug + release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout (com submódulos)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle 9.6.1 (com cache)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.1'
+
+      - name: Show toolchain
+        run: |
+          java -version
+          gradle --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/ndk" 2>/dev/null || true
+
+      - name: Build (debug + release)
+        run: gradle assembleDebug assembleRelease --stacktrace --no-daemon
+
+      - name: Upload APKs (artefato)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pina-xr-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Resumo
+        run: |
+          echo "## APKs gerados 🍍" >> $GITHUB_STEP_SUMMARY
+          ls -lh app/build/outputs/apk/debug/ app/build/outputs/apk/release/ || true

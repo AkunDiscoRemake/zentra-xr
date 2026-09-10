@@ -79,6 +79,14 @@ módulo `:sdk` (mesmo fluxo do sample oficial `hellocardboard-android`).
 > Sem terminal? O Android Studio resolve o wrapper Gradle automaticamente
 > (Gradle 9.6.1 / AGP 9.2.0, mesmas versões do Cardboard v1.35.0).
 
+### CI (GitHub Actions) 🤖
+
+O workflow **`.github/workflows/android.yml`** compila o app em cada push/PR
+(checkout com submódulos → JDK 21 → Gradle 9.6.1 → `assembleDebug
+assembleRelease`) e publica os **APKs como artefato** do run (aba *Actions* →
+run → *Artifacts* → `pina-xr-apks`). O release é assinado com a chave debug
+para ser instalável direto no celular (beta).
+
 ## Como usar
 
 1. Conceda a permissão de **câmera** (obrigatória para MR e mãos).

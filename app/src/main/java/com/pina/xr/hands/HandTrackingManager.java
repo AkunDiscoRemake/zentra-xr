@@ -141,8 +141,7 @@ public class HandTrackingManager {
               .setRunningMode(RunningMode.LIVE_STREAM)
               .setResultListener(this::onResults)
               .setErrorListener(
-                  (errorMessage, errorCode) ->
-                      Log.e(TAG, "landmarker: " + errorMessage + " (" + errorCode + ")"))
+                  error -> Log.e(TAG, "landmarker: " + error.getMessage()))
               .build();
 
       landmarker = HandLandmarker.createFromOptions(context, options);
