@@ -51,7 +51,7 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // Cardboard Section
-                    SettingsSection(title = "Cardboard / VR Box", icon = Icons.Filled.ViewInAr) {
+                    SettingsSection(title = "Cardboard / VR Box", icon = Icons.Filled.Visibility) {
                         SettingsItem(
                             icon = Icons.Filled.Videocam,
                             title = "Modo Estereoscópico",
@@ -61,25 +61,25 @@ fun SettingsScreen(
                             onSwitchChange = onToggleStereo
                         )
                         SettingsItem(
-                            icon = Icons.Filled.QrCodeScanner,
+                            icon = Icons.Filled.QrCode,
                             title = "Configurar Headset",
                             subtitle = "Escanear QR do seu VR Box (Cardboard oficial)",
                             onClick = onConfigureCardboard
                         )
                         SettingsInfoBox(
-                            text = "O ZENTRA XR usa a API REAL do Google Cardboard. Compatível com qualquer VR Box/Cardboard. Use a configuração para calibrar lentes e IPD."
+                            text = "O ZENTRA XR usa implementação REAL de Cardboard com IMU. Compatível com qualquer VR Box/Cardboard. Use a configuração para calibrar lentes e IPD."
                         )
                     }
 
                     // Camera & Tracking
                     SettingsSection(title = "Mixed Reality", icon = Icons.Filled.CameraAlt) {
                         SettingsItem(
-                            icon = Icons.Filled.Handyman,
+                            icon = Icons.Filled.Build,
                             title = "Hand Tracking - MediaPipe",
                             subtitle = "Processamento local • 30 FPS max • Baixa latência"
                         )
                         SettingsItem(
-                            icon = Icons.Filled.PrivacyTip,
+                            icon = Icons.Filled.Security,
                             title = "Privacidade",
                             subtitle = "Câmera nunca enviada para servidores. Tudo local."
                         )

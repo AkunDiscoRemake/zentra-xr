@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -74,7 +74,7 @@ fun PermissionScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.PrivacyTip, null, tint = Color(0xFF3ABFFF), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.Security, null, tint = Color(0xFF3ABFFF), modifier = Modifier.size(20.dp))
                     Column {
                         Text("Privacidade", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         Text("Imagens nunca enviadas para servidores. Tudo local.", color = Color.White.copy(0.5f), fontSize = 11.sp)
