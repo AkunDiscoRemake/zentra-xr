@@ -1,0 +1,15 @@
+// Pina XR - projeto raiz.
+// O módulo ':sdk' é o Cardboard SDK oficial (googlevr/cardboard), vindo do submódulo git
+// em cardboard/. Veja README.md para instruções de setup.
+
+include ':sdk', ':app'
+
+project(':sdk').projectDir = file('cardboard/sdk')
+
+def sdkBuild = new File(rootDir, 'cardboard/sdk/build.gradle')
+if (!sdkBuild.exists()) {
+    throw new GradleException(
+        "O submódulo do Cardboard SDK não foi baixado.\n" +
+        "Rode na raiz do projeto:\n" +
+        "    git submodule update --init --recursive")
+}

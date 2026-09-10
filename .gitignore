@@ -1,0 +1,17 @@
+# Gradle
+.gradle/
+build/
+app/build/
+sdk/build/
+app/libraries/
+
+# Modelo do MediaPipe (baixado automaticamente pelo task downloadHandModel)
+app/src/main/assets/hand_landmarker.task
+
+# IDE
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/

@@ -1,0 +1,4 @@
+[submodule "cardboard"]
+	path = cardboard
+	url = https://github.com/googlevr/cardboard.git
+	branch = v1.35.0

@@ -1,0 +1,85 @@
+/*
+ * Copyright 2019 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+syntax = "proto2";
+
+package cardboard;
+
+option java_package = "com.google.cardboard.proto";
+option java_outer_classname = "CardboardDevice";
+option optimize_for = LITE_RUNTIME;
+
+/**
+ * Message describing properties of a VR head mount device (HMD) which uses an
+ * interchangeable smartphone as a display (e.g. Google Cardboard).
+ *
+ * While some properties are certain (e.g. inter_lens_distance), others
+ * represent nominal values which may be refined depending on context (e.g.
+ * viewport_angles).
+ *
+ * Lengths are in meters unless noted otherwise.  Fields are _required_
+ * unless noted otherwise.
+ */
+message DeviceParams {
+  // String identifying the device's vendor (e.g. "Google, Inc.").
+  // A device's [vendor, model] pair is expected to be globally unique.
+  optional string vendor = 1;
+
+  // String identifying the device's model, including revision info if
+  // needed (e.g. "Cardboard v1").  A device's [vendor, model] pair is
+  // expected to be globally unique.
+  optional string model = 2;
+
+  // Distance from the display screen to the optical center of lenses.
+  // This is a required field for distortion rendering, and must be positive.
+  optional float screen_to_lens_distance = 3;
+
+  // Horizontal distance between optical center of the lenses.
+  // This is a required field for distortion rendering, and must be positive.
+  optional float inter_lens_distance = 4;
+
+  // Four-element tuple (left, right, bottom, top) of left eye's view extent
+  // angles relative to center.
+  repeated float left_eye_field_of_view_angles = 5 [packed = true];
+
+  enum VerticalAlignmentType {
+    BOTTOM = 0;  // phone rests against a fixed bottom tray
+    CENTER = 1;  // phone screen assumed to be centered w.r.t. lenses
+    TOP = 2;     // phone rests against a fixed top tray
+  }
+
+  // Set according to vertical alignment strategy-- see enum comments above.
+  optional VerticalAlignmentType vertical_alignment = 11 [default = BOTTOM];
+
+  // If the phone is aligned vertically within the device by resting against
+  // a fixed top or bottom tray, this is the distance from the tray to
+  // optical center of the lenses.
+  optional float tray_to_lens_distance = 6;
+
+  // Coefficients Ki for pincushion distortion function which maps
+  // from position on real screen to virtual screen (i.e. texture) relative
+  // to optical center.
+  repeated float distortion_coefficients = 7 [packed = true];
+
+  enum ButtonType {
+    NONE = 0;
+    MAGNET = 1;
+    TOUCH = 2;
+    INDIRECT_TOUCH = 3;
+  }
+
+  // Specify primary input mechanism of the HMD.
+  optional ButtonType primary_button = 12 [default = MAGNET];
+}

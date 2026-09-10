@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pina XR</string>
+    <string name="camera_permission_rationale">A câmera é necessária para o modo Mixed Reality (passthrough e mãos).</string>
+    <string name="storage_permission_rationale">Permissão de armazenamento necessária para salvar o perfil do visor Cardboard.</string>
+</resources>
