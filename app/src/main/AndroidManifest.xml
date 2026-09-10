@@ -5,10 +5,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Navegador 3D -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Perfil do visor (device params) em Android < Q, igual ao sample do Cardboard -->
+    <!-- Perfil do visor (device params) e videos do celular (Android <= 32) -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+        android:maxSdkVersion="32" />
+    <!-- Videos do celular em Android 13+ -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="true" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

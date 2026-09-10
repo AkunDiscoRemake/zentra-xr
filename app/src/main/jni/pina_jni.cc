@@ -96,4 +96,31 @@ JNI_METHOD(void, nativeUpdatePage)
   native(app)->UpdatePage(env, byte_buffer, width, height, rects, urls);
 }
 
+JNI_METHOD(void, nativeOpenApp)
+(JNIEnv* /*env*/, jobject /*activity*/, jlong app, jint app_id) {
+  native(app)->OpenApp(app_id);
+}
+
+JNI_METHOD(void, nativeSetVideoList)
+(JNIEnv* env, jobject /*activity*/, jlong app, jobjectArray titles,
+ jlongArray ids, jboolean have_permission) {
+  native(app)->SetVideoList(env, titles, ids, have_permission);
+}
+
+JNI_METHOD(void, nativeSetVideoTexture)
+(JNIEnv* /*env*/, jobject /*activity*/, jlong app, jint tex_id) {
+  native(app)->SetVideoTexture(tex_id);
+}
+
+JNI_METHOD(void, nativeUpdateVideoTransform)
+(JNIEnv* env, jobject /*activity*/, jlong app, jfloatArray matrix) {
+  native(app)->UpdateVideoTransform(env, matrix);
+}
+
+JNI_METHOD(void, nativeSetVideoInfo)
+(JNIEnv* /*env*/, jobject /*activity*/, jlong app, jint width, jint height,
+ jlong duration_ms, jlong position_ms, jboolean playing) {
+  native(app)->SetVideoInfo(width, height, duration_ms, position_ms, playing);
+}
+
 }  // extern "C"

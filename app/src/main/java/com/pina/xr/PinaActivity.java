@@ -1,12 +1,14 @@
 /*
- * Pina XR - beta 0.1
+ * Pina XR - beta 0.2 ("Quest caseira")
  *
  * Activity principal: 100% VR estéreo (Cardboard). Nenhuma UI 2D além do
  * GLSurfaceView estéreo. Integra:
  *  - Cardboard SDK (distorção, QR do visor, 3DOF)
  *  - Passthrough da câmera frontal (Camera2) para Mixed Reality
- *  - Hand tracking MediaPipe (esqueleto + pinch)
- *  - Navegador 3D (painéis dentro do mundo)
+ *  - Hand tracking MediaPipe (esqueleto + pinch, filtros One Euro + Kalman)
+ *  - Launcher estilo Meta Quest: Navegador 3D, Vídeos do celular
+ *    (MediaStore + MediaPlayer -> textura OES), Vídeos 360°, Alvos 3D e
+ *    Simon 3D (jogos)
  */
 package com.pina.xr;
 
@@ -28,7 +30,10 @@ import androidx.core.app.ActivityCompat;
 import com.pina.xr.browser.BrowserContentManager;
 import com.pina.xr.camera.CameraReader;
 import com.pina.xr.hands.HandTrackingManager;
+import com.pina.xr.video.VideoPlayerController;
 import com.pina.xr.vr.PinaRenderer;
+
+import java.util.List;
 
 public class PinaActivity extends AppCompatActivity {
 
@@ -46,6 +51,7 @@ public class PinaActivity extends AppCompatActivity {
   private CameraReader cameraReader;
   private HandTrackingManager handTracking;
   private BrowserContentManager browser;
+  private VideoPlayerController videoPlayer;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -61,8 +67,32 @@ public class PinaActivity extends AppCompatActivity {
     glView.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
 
     handTracking = new HandTrackingManager(this);
-    cameraReader = new CameraReader(this, frame -> handTracking.detect(frame));
+    // O bus de frames é o MESMO do renderer: passthrough e mãos bebem da
+    // mesma fonte (na 0.1 o CameraReader publicava num bus próprio e nada
+    // funcionava).
+    cameraReader =
+        new CameraReader(this, renderer.frameBus(), frame -> handTracking.detect(frame));
     browser = new BrowserContentManager(renderer);
+    videoPlayer =
+        new VideoPlayerController(
+            this,
+            new VideoPlayerController.NativeBridge() {
+              @Override
+              public void setVideoTexture(int oesTextureId) {
+                renderer.scheduleSetVideoTexture(oesTextureId);
+              }
+
+              @Override
+              public void updateVideoTransform(float[] matrix) {
+                renderer.scheduleVideoTransform(matrix);
+              }
+
+              @Override
+              public void updateVideoInfo(
+                  int width, int height, long durationMs, long positionMs, boolean playing) {
+                renderer.scheduleVideoInfo(width, height, durationMs, positionMs, playing);
+              }
+            });
 
     setImmersiveSticky();
     View decorView = getWindow().getDecorView();
@@ -80,22 +110,34 @@ public class PinaActivity extends AppCompatActivity {
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
   }
 
+  /** Permissão de leitura de vídeo conforme a versão do Android. */
+  private static String mediaReadPermission() {
+    if (Build.VERSION.SDK_INT >= 33) {
+      return Manifest.permission.READ_MEDIA_VIDEO;
+    }
+    return Manifest.permission.READ_EXTERNAL_STORAGE;
+  }
+
   @Override
   protected void onResume() {
     super.onResume();
 
-    // Permissão de armazenamento (Android P ou anterior) para o perfil do
-    // visor Cardboard - mesmo fluxo do sample oficial.
+    // Permissão de armazenamento para o perfil do visor Cardboard (mesmo
+    // fluxo do sample oficial) e para os vídeos do celular.
+    final java.util.List<String> needed = new java.util.ArrayList<>();
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
         && !hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)) {
-      requestPermissions(
-          new String[] {Manifest.permission.READ_EXTERNAL_STORAGE});
-      return;
+      needed.add(Manifest.permission.READ_EXTERNAL_STORAGE);
     }
-
+    if (!hasPermission(mediaReadPermission())) {
+      needed.add(mediaReadPermission());
+    }
     // Câmera é obrigatória: passthrough MR + hand tracking.
     if (!hasPermission(Manifest.permission.CAMERA)) {
-      requestPermissions(new String[] {Manifest.permission.CAMERA});
+      needed.add(Manifest.permission.CAMERA);
+    }
+    if (!needed.isEmpty()) {
+      requestPermissions(needed.toArray(new String[0]));
       return;
     }
 
@@ -104,6 +146,14 @@ public class PinaActivity extends AppCompatActivity {
     cameraReader.setDisplayRotationDegrees(displayRotationDegrees());
     cameraReader.start();
     handTracking.start();
+    videoPlayer.resume();
+  }
+
+  /** Contexto EGL recriado: o pipeline de video precisa de textura nova. */
+  public void onGlSurfaceCreated() {
+    if (videoPlayer != null && glView != null) {
+      videoPlayer.onSurfaceRecreated(glView);
+    }
   }
 
   /** Rotacao de exibicao em graus (aparelho travado em paisagem). */
@@ -130,12 +180,16 @@ public class PinaActivity extends AppCompatActivity {
     cameraReader.stop();
     handTracking.stop();
     browser.cancel();
+    videoPlayer.pause();
   }
 
   @Override
   protected void onDestroy() {
     super.onDestroy();
     browser.cancel();
+    if (videoPlayer != null && glView != null) {
+      videoPlayer.release(glView);
+    }
     if (nativeApp != 0) {
       nativeOnDestroy(nativeApp);
       nativeApp = 0;
@@ -179,10 +233,42 @@ public class PinaActivity extends AppCompatActivity {
     runOnUiThread(this::finish);
   }
 
+  /** Launcher pediu a lista de vídeos do celular. */
+  public void onNativeRequestVideos() {
+    runOnUiThread(
+        () -> {
+          final boolean granted =
+              ActivityCompat.checkSelfPermission(this, mediaReadPermission())
+                  == PackageManager.PERMISSION_GRANTED;
+          final List<VideoPlayerController.VideoItem> videos =
+              granted
+                  ? VideoPlayerController.queryVideos(this)
+                  : java.util.Collections.emptyList();
+          final int n = videos.size();
+          final String[] titles = new String[n];
+          final long[] ids = new long[n];
+          for (int i = 0; i < n; i++) {
+            titles[i] = videos.get(i).title;
+            ids[i] = videos.get(i).id;
+          }
+          renderer.scheduleSetVideoList(titles, ids, granted);
+        });
+  }
+
+  /** Usuário pinchou um vídeo da lista (ou controle pediu replay). */
+  public void onNativePlayVideo(long videoId, boolean is360) {
+    runOnUiThread(() -> videoPlayer.play(videoId, glView));
+  }
+
+  /** Controles do player: 0=play/pause 1=-10s 2=+10s 3=stop. */
+  public void onNativeVideoControl(int action) {
+    runOnUiThread(() -> videoPlayer.control(action));
+  }
+
   // -------------------------------------------------------------------------
 
   void onPermissionsResult() {
-    // Simplificação da beta: recomeça o fluxo do onResume.
+    // Recomeça o fluxo do onResume.
     if (hasPermission(Manifest.permission.CAMERA)) {
       onResume();
     } else {
@@ -215,6 +301,8 @@ public class PinaActivity extends AppCompatActivity {
         return;
       }
     }
+    // Permissão de mídia negada não é fatal: o app abre e o painel de vídeos
+    // mostra "sem permissão".
     onPermissionsResult();
   }
 
@@ -261,6 +349,19 @@ public class PinaActivity extends AppCompatActivity {
   public native void nativeUpdatePage(
       long app, java.nio.ByteBuffer rgba, int width, int height,
       float[] linkRects, String[] linkUrls);
+
+  // Beta 0.2: launcher e vídeo.
+  public native void nativeOpenApp(long app, int appId);
+
+  public native void nativeSetVideoList(
+      long app, String[] titles, long[] ids, boolean havePermission);
+
+  public native void nativeSetVideoTexture(long app, int oesTextureId);
+
+  public native void nativeUpdateVideoTransform(long app, float[] matrix);
+
+  public native void nativeSetVideoInfo(
+      long app, int width, int height, long durationMs, long positionMs, boolean playing);
 
   public long nativeAppHandle() {
     return nativeApp;

@@ -2,8 +2,14 @@
  * Pina XR - passthrough MR via Camera2 API.
  *
  * Abre a camera frontal, captura YUV_420_888 via ImageReader, converte para
- * RGBA (rotacionado para a orientacao de exibicao) e publica no frame bus.
- * O mesmo bitmap alimenta o MediaPipe (hand tracking).
+ * RGBA (rotacionado para a orientacao de exibicao) e publica no frame bus
+ * COMPARTILHADO (o mesmo do renderer: passthrough + hand tracking).
+ *
+ * Correcoes 0.2:
+ *  - Usa o bus passado pelo renderer (na 0.1 publicava num bus proprio que
+ *    ninguem consumia: passthrough e maos ficavam mortos).
+ *  - Escolhe um tamanho suportado pela camera (640x480 era fixo e algumas
+ *    cameras nao suportam: a sessao nem configurava).
  */
 package com.pina.xr.camera;
 
@@ -17,9 +23,11 @@ import android.hardware.camera2.CaptureRequest;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
+import android.util.Size;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -27,9 +35,9 @@ import java.util.List;
 
 public class CameraReader {
 
-  private static final String TAG = "CameraReader";
-  private static final int CAPTURE_WIDTH = 640;
-  private static final int CAPTURE_HEIGHT = 480;
+  private static final String TAG = "PinaCamera";
+  private static final int PREFERRED_WIDTH = 640;
+  private static final int PREFERRED_HEIGHT = 480;
 
   /** Chamado na thread da camera com o bitmap pronto (RGBA). */
   public interface FrameListener {
@@ -38,7 +46,7 @@ public class CameraReader {
 
   private final Context context;
   private final FrameListener listener;
-  private final CameraFrameBus frameBus = new CameraFrameBus();
+  private final CameraFrameBus frameBus;  // compartilhado com o renderer
 
   private final Object publishLock = new Object();
 
@@ -52,13 +60,17 @@ public class CameraReader {
   private int displayRotationDegrees = 90; // aparelho travado em landscape
   private int rotationDegrees = 0;
   private boolean frontCamera = true;
+  private int captureWidth = PREFERRED_WIDTH;
+  private int captureHeight = PREFERRED_HEIGHT;
 
-  // Buffers de conversao.
-  private final int[] sensorPixels = new int[CAPTURE_WIDTH * CAPTURE_HEIGHT];
-  private final int[] rotatedPixels = new int[CAPTURE_WIDTH * CAPTURE_HEIGHT];
+  // Buffers de conversao (alocados no tamanho real da camera).
+  private int[] sensorPixels = new int[0];
+  private int[] rotatedPixels = new int[0];
 
-  public CameraReader(Context context, FrameListener listener) {
+  public CameraReader(
+      Context context, CameraFrameBus sharedBus, FrameListener listener) {
     this.context = context;
+    this.frameBus = sharedBus;
     this.listener = listener;
   }
 
@@ -124,10 +136,17 @@ public class CameraReader {
       frontCamera = facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT;
       rotationDegrees = computeRotationDegrees();
 
+      Size size = pickCaptureSize(characteristics);
+      captureWidth = size.getWidth();
+      captureHeight = size.getHeight();
+      Log.i(TAG, "camera " + cameraId + " capturando " + captureWidth + "x" + captureHeight);
+      sensorPixels = new int[captureWidth * captureHeight];
+      rotatedPixels = new int[captureWidth * captureHeight];
+
       imageReader =
           android.media.ImageReader.newInstance(
-              CAPTURE_WIDTH,
-              CAPTURE_HEIGHT,
+              captureWidth,
+              captureHeight,
               android.graphics.ImageFormat.YUV_420_888,
               3);
       imageReader.setOnImageAvailableListener(this::onImageAvailable, cameraHandler);
@@ -152,6 +171,7 @@ public class CameraReader {
                               camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                           builder.addTarget(imageReader.getSurface());
                           session.setRepeatingRequest(builder.build(), null, cameraHandler);
+                          Log.i(TAG, "passthrough MR ativo");
                         } catch (Exception e) {
                           Log.e(TAG, "setRepeatingRequest falhou", e);
                         }
@@ -207,6 +227,50 @@ public class CameraReader {
   }
 
   /**
+   * Escolhe o menor tamanho suportado pela camera com area perto de 640x480
+   * (bom para MediaPipe e para a CPU). Cai para o menor disponivel se a
+   * preferida nao existir.
+   */
+  private Size pickCaptureSize(CameraCharacteristics characteristics) {
+    try {
+      android.hardware.camera2.params.StreamConfigurationMap map =
+          characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+      Size[] sizes =
+          map != null ? map.getOutputSizes(android.graphics.ImageFormat.YUV_420_888) : null;
+      if (sizes == null || sizes.length == 0) {
+        return new Size(PREFERRED_WIDTH, PREFERRED_HEIGHT);
+      }
+      Size best = null;
+      long bestScore = Long.MAX_VALUE;
+      for (Size s : sizes) {
+        if (s.getWidth() * s.getHeight() > 1_200_000) continue; // nao precisa 4K
+        final long score =
+            (long) Math.abs(s.getWidth() * s.getHeight()
+                - PREFERRED_WIDTH * PREFERRED_HEIGHT)
+                * 10
+                + Math.abs((long) s.getWidth() * PREFERRED_HEIGHT
+                    - (long) s.getHeight() * PREFERRED_WIDTH)
+                    * 100
+                    / (PREFERRED_WIDTH * PREFERRED_HEIGHT + 1);
+        if (score < bestScore) {
+          bestScore = score;
+          best = s;
+        }
+      }
+      if (best == null) {
+        best = sizes[0];
+        for (Size s : sizes) {
+          if (s.getWidth() * s.getHeight() < best.getWidth() * best.getHeight()) best = s;
+        }
+      }
+      return best;
+    } catch (Exception e) {
+      Log.w(TAG, "nao consegui listar tamanhos; usando 640x480", e);
+      return new Size(PREFERRED_WIDTH, PREFERRED_HEIGHT);
+    }
+  }
+
+  /**
    * Rotacao necessaria para exibir o frame de pe, mesmo calculo do CameraX:
    * (sensorOrientation - displayRotation) e inversao para cameras frontais.
    */
@@ -228,6 +292,7 @@ public class CameraReader {
 
       final int width = image.getWidth();
       final int height = image.getHeight();
+      if (width * height != sensorPixels.length) return; // tamanho mudou: ignora
       android.media.Image.Plane[] planes = image.getPlanes();
       if (planes.length < 3) return;
 

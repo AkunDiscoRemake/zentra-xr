@@ -40,6 +40,8 @@ public class PinaRenderer implements GLSurfaceView.Renderer {
     PinaActivity activity = activityRef.get();
     if (activity == null) return;
     activity.nativeOnSurfaceCreated(activity.nativeAppHandle());
+    // Contexto EGL novo: recria a textura OES do video se havia um video.
+    activity.onGlSurfaceCreated();
   }
 
   @Override
@@ -92,5 +94,56 @@ public class PinaRenderer implements GLSurfaceView.Renderer {
     final long app = activity.nativeAppHandle();
     glView.queueEvent(
         () -> activity.nativeUpdatePage(app, rgba, width, height, linkRects, linkUrls));
+  }
+
+  // -------------------------------------------------------------------------
+  // Pontes 0.2: apps do launcher e pipeline de video (chamadas de qualquer
+  // thread; executam na GL thread).
+  // -------------------------------------------------------------------------
+
+  /** Abre um app do launcher (ver AppId no nativo). */
+  public void scheduleOpenApp(int appId) {
+    PinaActivity activity = activityRef.get();
+    if (activity == null || activity.nativeAppHandle() == 0) return;
+    final long app = activity.nativeAppHandle();
+    glView.queueEvent(() -> activity.nativeOpenApp(app, appId));
+  }
+
+  /** Publica a lista de videos do celular no painel nativo. */
+  public void scheduleSetVideoList(String[] titles, long[] ids, boolean havePermission) {
+    PinaActivity activity = activityRef.get();
+    if (activity == null || activity.nativeAppHandle() == 0) return;
+    final long app = activity.nativeAppHandle();
+    glView.queueEvent(
+        () -> activity.nativeSetVideoList(app, titles, ids, havePermission));
+  }
+
+  /** Define a textura OES do video (0 = nenhuma). */
+  public void scheduleSetVideoTexture(int textureId) {
+    PinaActivity activity = activityRef.get();
+    if (activity == null || activity.nativeAppHandle() == 0) return;
+    final long app = activity.nativeAppHandle();
+    glView.queueEvent(() -> activity.nativeSetVideoTexture(app, textureId));
+  }
+
+  /** Matriz de transformacao da SurfaceTexture (u_TexMatrix no shader). */
+  public void scheduleVideoTransform(float[] matrix) {
+    PinaActivity activity = activityRef.get();
+    if (activity == null || activity.nativeAppHandle() == 0) return;
+    final long app = activity.nativeAppHandle();
+    final float[] copy = matrix.clone();
+    glView.queueEvent(() -> activity.nativeUpdateVideoTransform(app, copy));
+  }
+
+  /** Info do player para o HUD (tamanho, duracao, posicao, tocando). */
+  public void scheduleVideoInfo(
+      int width, int height, long durationMs, long positionMs, boolean playing) {
+    PinaActivity activity = activityRef.get();
+    if (activity == null || activity.nativeAppHandle() == 0) return;
+    final long app = activity.nativeAppHandle();
+    glView.queueEvent(
+        () ->
+            activity.nativeSetVideoInfo(
+                app, width, height, durationMs, positionMs, playing));
   }
 }
