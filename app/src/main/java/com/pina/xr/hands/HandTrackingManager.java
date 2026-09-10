@@ -260,8 +260,9 @@ public class HandTrackingManager {
   private long lostFrames = 0;         // frames sem mao (para reter suavidade)
 
   // Copia do frame em processamento. E reciclada quando o PROXIMO frame e
-  // aceito (o busy garante que o anterior ja foi consumido pelo modelo).
+  // aceito E o modelo ja entregou o resultado da anterior (ver detect()).
   private Bitmap pendingCopy;
+  private boolean consumedSinceLastSubmit = false;
 
   public HandTrackingManager(Context context) {
     this.context = context.getApplicationContext();
@@ -314,7 +315,7 @@ public class HandTrackingManager {
     // ou erro silencioso), libera o busy para o tracking nao morrer.
     if (busy && now - busySince > 1500) {
       Log.w(TAG, "watchdog: liberando busy preso");
-      busy = false;
+      busy = false;  // a copia anterior NAO e reciclada (consumedSince=false)
     }
     if (busy) return;
     // Processa no maximo ~15 fps para nao pesar a bateria/perf.
@@ -334,11 +335,17 @@ public class HandTrackingManager {
     busySince = now;
     lastTimestamp = now;
     final long timestamp = now;
-    // Libera a copia anterior (consumida: busy so reabre apos onResults/erro).
-    if (pendingCopy != null && pendingCopy != copy) {
+    // Libera a copia anterior SOMENTE se o modelo ja terminou a anterior
+    // (onResults). Se o watchdog liberou o busy no meio de um processamento,
+    // a copia anterior ainda pode estar em uso pelo MediaPipe: reciclar
+    // causaria use-after-free NATIVO (SIGSEGV = app fechando sozinho).
+    // Nesse caso apenas soltamos a referencia; o GC libera quando o MediaPipe
+    // tambem soltar (NativeAllocationRegistry).
+    if (pendingCopy != null && pendingCopy != copy && consumedSinceLastSubmit) {
       pendingCopy.recycle();
     }
     pendingCopy = copy;
+    consumedSinceLastSubmit = false;
     handHandler.post(
         () -> {
           final HandLandmarker lm = landmarker;
@@ -376,6 +383,7 @@ public class HandTrackingManager {
                   error -> {
                     Log.e(TAG, "landmarker: " + error.getMessage());
                     busy = false;  // erro nunca pode travar o pipeline
+                    consumedSinceLastSubmit = true;
                   })
               .build();
 
@@ -389,6 +397,7 @@ public class HandTrackingManager {
 
   private void onResults(@NonNull HandLandmarkerResult result, @NonNull MPImage input) {
     busy = false;
+    consumedSinceLastSubmit = true;
     final long ts = SystemClock.uptimeMillis();
 
     if (result.landmarks().isEmpty()) {

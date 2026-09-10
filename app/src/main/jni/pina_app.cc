@@ -326,6 +326,61 @@ GLuint CreateRgbaTexture(int w, int h, const uint8_t* data) {
   return tex;
 }
 
+// Base64 (alfabeto web-safe, sem padding) - formato aceito pelo parser de URI
+// do Cardboard (https://google.com/cardboard/cfd?p=<params>).
+std::string Base64UrlEncode(const uint8_t* data, size_t len) {
+  static const char kAlphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  std::string out;
+  out.reserve(((len + 2) / 3) * 4);
+  size_t i = 0;
+  while (i + 3 <= len) {
+    const uint32_t v = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    out += kAlphabet[(v >> 18) & 63];
+    out += kAlphabet[(v >> 12) & 63];
+    out += kAlphabet[(v >> 6) & 63];
+    out += kAlphabet[v & 63];
+    i += 3;
+  }
+  const size_t rest = len - i;
+  if (rest == 1) {
+    const uint32_t v = data[i] << 16;
+    out += kAlphabet[(v >> 18) & 63];
+    out += kAlphabet[(v >> 12) & 63];
+  } else if (rest == 2) {
+    const uint32_t v = (data[i] << 16) | (data[i + 1] << 8);
+    out += kAlphabet[(v >> 18) & 63];
+    out += kAlphabet[(v >> 12) & 63];
+    out += kAlphabet[(v >> 6) & 63];
+  }
+  return out;
+}
+
+// Salva o perfil padrao do Cardboard V1 como device params, sem precisar
+// escanear QR. O app ja abre com distorcao generica decente; o usuario ainda
+// pode escanear o QR do visor pelo botao VISOR do painel de status.
+void SaveDefaultDeviceParams() {
+  uint8_t* v1 = nullptr;
+  int v1_size = 0;
+  CardboardQrCode_getCardboardV1DeviceParams(&v1, &v1_size);
+  if (v1 == nullptr || v1_size <= 0) {
+    LOGE("CardboardQrCode_getCardboardV1DeviceParams vazio");
+    return;
+  }
+  const std::string uri =
+      "https://google.com/cardboard/cfd?p=" + Base64UrlEncode(v1, v1_size);
+  CardboardQrCode_saveDeviceParams(
+      reinterpret_cast<const uint8_t*>(uri.data()),
+      static_cast<int>(uri.size()));
+  CardboardQrCode_destroy(v1);
+
+  uint8_t* check = nullptr;
+  int check_size = 0;
+  CardboardQrCode_getSavedDeviceParams(&check, &check_size);
+  LOGI("Perfil de visor padrao (Cardboard V1) salvo (%d bytes)", check_size);
+  CardboardQrCode_destroy(check);
+}
+
 }  // namespace
 
 // ===========================================================================
@@ -372,13 +427,18 @@ void PinaApp::OnResume() {
   CardboardHeadTracker_resume(head_tracker_);
   device_params_changed_ = true;
 
-  uint8_t* buffer;
-  int size;
+  // Sem perfil salvo: salva o perfil padrao (Cardboard V1) e segue. NAO
+  // abrimos mais o scanner automaticamente: em aparelhos sem o Google Play
+  // Services atualizado o scanner quebrava e o app fechava segundos apos
+  // abrir. O scanner fica no botao VISOR do painel de status.
+  uint8_t* buffer = nullptr;
+  int size = 0;
   CardboardQrCode_getSavedDeviceParams(&buffer, &size);
-  if (size == 0) {
-    SwitchViewer();
-  }
   CardboardQrCode_destroy(buffer);
+  if (size == 0) {
+    SaveDefaultDeviceParams();
+    device_params_changed_ = true;
+  }
 }
 
 void PinaApp::SwitchViewer() { CardboardQrCode_scanQrCodeAndSaveDeviceParams(); }
@@ -873,14 +933,21 @@ void PinaApp::RebuildStatus() {
   char line[64];
   snprintf(line, sizeof(line), "MAOS: %0.0fFPS  CAM: %0.0fFPS", hands_fps_,
            cam_fps_);
-  c.TextCentered(kStatusTexW / 2, 18, line, 1, 120, 230, 255);
-  c.TextCentered(kStatusTexW / 2, 44, has_hands_ ? "MAO VISTA :)" : "MOSTRE A MAO",
-                 1, has_hands_ ? 120 : 200, has_hands_ ? 255 : 160,
+  c.TextCentered(kStatusTexW / 2, 12, line, 1, 120, 230, 255);
+  // Botao VISOR: escanear o QR do visor (opcional; o perfil padrao ja funciona).
+  c.FillRoundRect(10, 34, 118, 84, 8, 40, 170, 90, 255);
+  c.TextCentered(64, 51, "VISOR", 1, 255, 255, 255);
+  c.TextCentered(283, 51, has_hands_ ? "MAO VISTA :)" : "MOSTRE A MAO", 1,
+                 has_hands_ ? 120 : 200, has_hands_ ? 255 : 160,
                  has_hands_ ? 140 : 160);
 
   if (status_texture_ != 0) glDeleteTextures(1, &status_texture_);
   status_texture_ = CreateRgbaTexture(kStatusTexW, kStatusTexH, c.px.data());
   status_panel_.texture = status_texture_;
+  status_panel_.regions = {
+      {10.0f / kStatusTexW, 34.0f / kStatusTexH, 118.0f / kStatusTexW,
+       84.0f / kStatusTexH, kHomeViewer},
+  };
 }
 
 // ===========================================================================
@@ -892,10 +959,11 @@ bool PinaApp::UpdateDeviceParams() {
     return true;
   }
 
-  uint8_t* buffer;
-  int size;
+  uint8_t* buffer = nullptr;
+  int size = 0;
   CardboardQrCode_getSavedDeviceParams(&buffer, &size);
   if (size == 0) {
+    CardboardQrCode_destroy(buffer);
     return false;
   }
 
@@ -904,6 +972,9 @@ bool PinaApp::UpdateDeviceParams() {
                                                     screen_height_);
   CardboardQrCode_destroy(buffer);
 
+  // Libera os recursos GL do setup anterior (sem isso, cada mudanca de
+  // perfil/rotacao vazava framebuffer/texture).
+  GlTeardown();
   GlSetup();
 
   CardboardDistortionRenderer_destroy(distortion_renderer_);
@@ -1750,6 +1821,9 @@ void PinaApp::HandleInteraction() {
   };
 
   if (launcher_panel_.visible) hover_panel(launcher_panel_);
+  if (hover_type_ == kHoverNone && status_panel_.visible) {
+    hover_panel(status_panel_);
+  }
   if (hover_type_ == kHoverNone && browser_frame_panel_.visible) {
     hover_panel(browser_frame_panel_);
     float pu = 0.0f, pv = 0.0f;

@@ -97,18 +97,23 @@ módulo `:sdk` (mesmo fluxo do sample oficial `hellocardboard-android`).
 
 ### CI (GitHub Actions) 🤖
 
-O workflow **`.github/workflows/android.yml`** compila o app em cada push/PR
-(checkout com submódulos → JDK 21 → Gradle 9.6.1 → `assembleDebug
-assembleRelease`) e publica os **APKs como artefato** do run (aba *Actions* →
-run → *Artifacts* → `pina-xr-apks`). O release é assinado com a chave debug
-para ser instalável direto no celular (beta).
+O workflow **`.github/workflows/android.yml`** tem dois jobs em cada push/PR:
+
+1. **build**: checkout com submódulos → JDK 21 → Gradle 9.6.1 →
+   `assembleDebug assembleRelease` → APKs publicados como artefato
+   `pina-xr-apks` (o release é assinado com a chave debug, instalável direto).
+2. **emulator-test**: patch de ABI x86_64 → build debug → **emulador Android
+   com KVM** → instala, concede permissões, abre o app, **observa por 13+ s**,
+   simula o toque do visor (`input tap`) e **falha se o processo morrer**.
+   O logcat completo vai no artefato `emulator-logcat`.
 
 ## Como usar
 
 1. Conceda as permissões de **câmera** (MR + mãos) e de **vídeos** (app
    VÍDEOS; sem ela o painel avisa "sem permissão").
-2. Na primeira execução, **escaneie o QR Code** do seu visor Cardboard
-   (impresso na caixa) — igual aos apps Cardboard oficiais.
+2. O app já abre com o **perfil padrão Cardboard V1** (distorção genérica) —
+   nada de scanner obrigatório. Para o perfil exato do seu visor, pinche
+   **VISOR** no painel de status e aponte para o QR Code da caixa.
 3. Coloque o celular no visor.
 4. Levante a **mão na frente do rosto**: o esqueleto aparece e o apontador
    (linha + bolinha) sai do gesto de pinçar.

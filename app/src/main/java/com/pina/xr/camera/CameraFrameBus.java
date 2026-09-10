@@ -28,14 +28,16 @@ public class CameraFrameBus {
   private long seq = 0;          // contador de frames publicados
   private long consumedSeq = -1; // ultimo frame consumido pela GL
   private boolean glReading = false;
+  private int glHeldSlot = -1;   // slot que a GL esta usando (upload)
 
   /** Garante dois bitmaps do tamanho pedido (chamado pela thread da camera). */
   public void ensureSize(int width, int height) {
     synchronized (lock) {
       for (int i = 0; i < 2; i++) {
-        if (slots[i] == null
-            || slots[i].getWidth() != width
-            || slots[i].getHeight() != height) {
+        if ((slots[i] == null
+                || slots[i].getWidth() != width
+                || slots[i].getHeight() != height)
+            && i != glHeldSlot) {  // GL ainda pode estar lendo este slot
           Bitmap old = slots[i];
           slots[i] =
               Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -71,6 +73,7 @@ public class CameraFrameBus {
       if (readyIndex < 0 || slots[readyIndex] == null) return null;
       if (seq == consumedSeq || glReading) return null;
       glReading = true;
+      glHeldSlot = readyIndex;
       consumedSeq = seq;
       return new LatestFrame(slots[readyIndex], seq);
     }
@@ -80,6 +83,7 @@ public class CameraFrameBus {
   public void releaseGl() {
     synchronized (lock) {
       glReading = false;
+      glHeldSlot = -1;
     }
   }
 

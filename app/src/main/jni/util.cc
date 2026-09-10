@@ -378,10 +378,11 @@ int RandomUniformInt(int max_val) {
 }
 
 void CheckGlError(const char* file, int line, const char* label) {
-  int gl_error = glGetError();
+  const int gl_error = glGetError();
   if (gl_error != GL_NO_ERROR) {
+    // NAO fatal: um erro de GL nao derruba o app (0.1 abortava aqui e o app
+    // morria "alguns segundos apos abrir" por qualquer erro de textura/shader).
     LOGE("%s : %d > GL error @ %s: %d", file, line, label, gl_error);
-    abort();
   }
 }
 

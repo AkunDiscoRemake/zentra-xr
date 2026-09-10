@@ -14,6 +14,7 @@ package com.pina.xr;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.util.Log;
 import android.content.res.AssetManager;
 import android.opengl.GLSurfaceView;
 import android.os.Build;
@@ -33,6 +34,8 @@ import com.pina.xr.hands.HandTrackingManager;
 import com.pina.xr.video.VideoPlayerController;
 import com.pina.xr.vr.PinaRenderer;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.util.List;
 
 public class PinaActivity extends AppCompatActivity {
@@ -56,6 +59,7 @@ public class PinaActivity extends AppCompatActivity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    installCrashCatcher();
 
     nativeApp = nativeOnCreate((AssetManager) getAssets());
 
@@ -124,7 +128,7 @@ public class PinaActivity extends AppCompatActivity {
 
     // Permissão de armazenamento para o perfil do visor Cardboard (mesmo
     // fluxo do sample oficial) e para os vídeos do celular.
-    final java.util.List<String> needed = new java.util.ArrayList<>();
+    final java.util.LinkedHashSet<String> needed = new java.util.LinkedHashSet<>();
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
         && !hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)) {
       needed.add(Manifest.permission.READ_EXTERNAL_STORAGE);
@@ -142,7 +146,12 @@ public class PinaActivity extends AppCompatActivity {
     }
 
     glView.onResume();
-    nativeOnResume(nativeApp);
+    try {
+      nativeOnResume(nativeApp);
+    } catch (Throwable t) {
+      // NUNCA deixe o SDK do Cardboard (scanner/perfil) derrubar o app.
+      Log.e(TAG, "nativeOnResume falhou; seguindo sem perfil novo", t);
+    }
     cameraReader.setDisplayRotationDegrees(displayRotationDegrees());
     cameraReader.start();
     handTracking.start();
@@ -263,6 +272,49 @@ public class PinaActivity extends AppCompatActivity {
   /** Controles do player: 0=play/pause 1=-10s 2=+10s 3=stop. */
   public void onNativeVideoControl(int action) {
     runOnUiThread(() -> videoPlayer.control(action));
+  }
+
+  // -------------------------------------------------------------------------
+  // Capturador de crash: escreve o stack em filesDir/pina-crash.txt. Na
+  // proxima abertura o conteudo vai para o logcat (TAG PinaCrash) e o
+  // arquivo fica guardado para o usuario enviar.
+  // -------------------------------------------------------------------------
+
+  private void installCrashCatcher() {
+    final File crashFile = new File(getFilesDir(), "pina-crash.txt");
+    final Thread.UncaughtExceptionHandler previous =
+        Thread.getDefaultUncaughtExceptionHandler();
+    Thread.setDefaultUncaughtExceptionHandler(
+        (thread, throwable) -> {
+          try {
+            final String text =
+                "thread=" + thread.getName()
+                + "\n" + Log.getStackTraceString(throwable);
+            try (FileWriter w = new FileWriter(crashFile, false)) {
+              w.write(text);
+            }
+            Log.e("PinaCrash", "CRASH CAPTURADO\n" + text);
+          } catch (Throwable ignored) {
+            // nada mais a fazer
+          }
+          if (previous != null) {
+            previous.uncaughtException(thread, throwable);
+          }
+        });
+
+    if (crashFile.exists()) {
+      try {
+        final String text =
+            new String(java.nio.file.Files.readAllBytes(crashFile.toPath()));
+        Log.e("PinaCrash", "CRASH ANTERIOR\n" + text);
+        final File kept = new File(getFilesDir(), "pina-crash-last.txt");
+        if (!crashFile.renameTo(kept)) {
+          crashFile.delete();
+        }
+      } catch (Throwable ignored) {
+        // sem problema
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
