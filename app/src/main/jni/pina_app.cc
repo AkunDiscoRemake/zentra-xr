@@ -1171,6 +1171,22 @@ void PinaApp::OnTriggerEvent() {
 // Texturas enviadas do Java
 // ===========================================================================
 
+void PinaApp::UpdateHands(JNIEnv* env, jfloatArray left, jfloatArray right,
+                          jboolean pinch_left, jboolean pinch_right) {
+  auto copy = [&](jfloatArray arr, std::array<float, 63>* out) -> bool {
+    if (arr == nullptr) return false;
+    const jsize len = env->GetArrayLength(arr);
+    if (len < 63) return false;
+    env->GetFloatArrayRegion(arr, 0, 63, out->data());
+    return true;
+  };
+  hands_.has_left = copy(left, &hands_.left);
+  hands_.has_right = copy(right, &hands_.right);
+  hands_.pinch_left = pinch_left == JNI_TRUE;
+  hands_.pinch_right = pinch_right == JNI_TRUE;
+  has_hands_ = hands_.has_left || hands_.has_right;
+}
+
 void PinaApp::UpdateCameraFrame(JNIEnv* env, jobject byte_buffer, jint width,
                                 jint height) {
   if (byte_buffer == nullptr || width <= 0 || height <= 0) return;
