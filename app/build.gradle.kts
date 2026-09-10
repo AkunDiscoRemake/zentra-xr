@@ -11,8 +11,8 @@ android {
         applicationId = "com.zentra.xr"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0-beta1"
+        versionCode = 2
+        versionName = "1.0.0-beta2"
         vectorDrawables {
             useSupportLibrary = true
         }

@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.zentra.xr.ui.MRContainer
+import com.zentra.xr.ui.StereoMRContainer
 import com.zentra.xr.ui.screens.PermissionScreen
 import com.zentra.xr.ui.theme.ZentraTheme
 
@@ -113,8 +114,8 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.fillMaxSize()
                                 )
 
-                                // MR UI overlay (Joy-Con + Pointer + Spatial UI)
-                                MRContainer(
+                                // MR UI overlay - Beta 2: Stereo for VR Box
+                                StereoMRContainer(
                                     cameraManager = viewModel.cameraManager,
                                     handTracker = viewModel.handTracker,
                                     cardboardManager = viewModel.cardboardManager,
