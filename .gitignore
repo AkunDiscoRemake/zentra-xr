@@ -1,0 +1,18 @@
+# build artifacts
+neonforge/build/
+*.apk
+*.idsig
+neonforge/release.keystore
+
+# toolchain binaries (obtained separately — see tools/README.md)
+tools/aapt2
+tools/android.jar
+tools/ecj.jar
+tools/d8.jar
+tools/apksigner.jar
+tools/*.keystore
+
+# misc
+*.class
+*.dex
+.DS_Store

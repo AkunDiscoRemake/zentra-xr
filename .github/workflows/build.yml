@@ -1,0 +1,98 @@
+name: Build NEON FORGE APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Android build-tools + android-34 platform
+        run: |
+          set -euo pipefail
+          export ANDROID_SDK_ROOT="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          curl -fsSL -o "$RUNNER_TEMP/cmdline-tools.zip" \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/cmdline-tools"
+          mv "$RUNNER_TEMP/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            --sdk_root="$ANDROID_SDK_ROOT" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Download Eclipse Compiler (ecj)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tools"
+          curl -fsSL -o "$RUNNER_TEMP/tools/ecj.jar" \
+            https://repo1.maven.org/maven2/org/eclipse/jdt/ecj/3.34.0/ecj-3.34.0.jar
+
+      - name: Assemble toolchain
+        run: |
+          set -euo pipefail
+          export ANDROID_SDK_ROOT="$RUNNER_TEMP/android-sdk"
+          TOOLS="$RUNNER_TEMP/tools"
+          cp "$ANDROID_SDK_ROOT/build-tools/34.0.0/aapt2" "$TOOLS/aapt2"
+          cp "$ANDROID_SDK_ROOT/build-tools/34.0.0/lib/d8.jar" "$TOOLS/d8.jar"
+          cp "$ANDROID_SDK_ROOT/build-tools/34.0.0/lib/apksigner.jar" "$TOOLS/apksigner.jar"
+          cp "$ANDROID_SDK_ROOT/platforms/android-34/android.jar" "$TOOLS/android.jar"
+          ls -la "$TOOLS"
+
+      - name: Restore release keystore (optional secret)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > neonforge/release.keystore
+            echo "release keystore restored from KEYSTORE_B64 secret"
+          else
+            echo "no KEYSTORE_B64 secret — build.py will generate an ephemeral key"
+          fi
+
+      - name: Build APK
+        run: |
+          set -euo pipefail
+          python3 build.py \
+            --tools "$RUNNER_TEMP/tools" \
+            --java java \
+            --src neonforge/src \
+            --res neonforge/res \
+            --manifest neonforge/AndroidManifest.xml \
+            --out neonforge/build/NEON-FORGE.apk \
+            --keystore neonforge/release.keystore \
+            --sign \
+            --min-sdk 26 --target-sdk 34 --version-code 1 --version-name 1.0
+
+      - name: Verify APK
+        run: |
+          set -euo pipefail
+          java -jar "$RUNNER_TEMP/tools/apksigner.jar" verify --verbose --print-certs \
+            neonforge/build/NEON-FORGE.apk
+          ls -la neonforge/build/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEON-FORGE
+          path: neonforge/build/NEON-FORGE.apk
+          if-no-files-found: error
