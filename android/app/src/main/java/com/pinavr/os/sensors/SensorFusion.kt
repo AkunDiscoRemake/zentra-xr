@@ -93,7 +93,7 @@ class SensorFusion(context: Context) : SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        when (event.type) {
+        when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GAME_ROTATION_VECTOR -> {
                 // Melhor precisão: RotationVector já faz fusão hardware
                 SensorManager.getQuaternionFromVector(quaternion, event.values)
