@@ -1,0 +1,17 @@
+{
+  "name": "pina-vr",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "PINA VR - Cardboard Mixed Reality OS - Mixed Reality default, 100% 3D spatial",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#00ff88">
+  <title>PINA VR — Cardboard Mixed Reality OS</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body { 
+      width:100%; height:100%; overflow:hidden; 
+      background:#000; 
+      font-family: monospace;
+      overscroll-behavior: none;
+      touch-action: none;
+      user-select: none;
+    }
+    #app { width:100%; height:100%; position:relative; }
+    #loading {
+      position: absolute;
+      inset:0;
+      background: radial-gradient(ellipse at center, #0f0f1e 0%, #000000 100%);
+      display:flex;
+      flex-direction: column;
+      align-items:center;
+      justify-content:center;
+      z-index:1000;
+      color:#00ff88;
+    }
+    #loading h1 {
+      font-size: 4rem;
+      letter-spacing: 0.3em;
+      margin-bottom: 1rem;
+      text-shadow: 0 0 20px #00ff88;
+      animation: pulse 2s infinite;
+    }
+    #loading p {
+      color:#888;
+      font-size:0.9rem;
+      max-width:400px;
+      text-align:center;
+      line-height:1.6;
+    }
+    #loading .hint {
+      margin-top:2rem;
+      padding:12px 20px;
+      border:1px solid #00ff88;
+      border-radius:8px;
+      background: rgba(0,255,136,0.1);
+    }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform: scale(1); }
+      50% { opacity:0.8; transform: scale(1.02); }
+    }
+    /* Esconde scrollbars */
+    ::-webkit-scrollbar { display:none; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="loading">
+    <h1>PINA VR</h1>
+    <p>CARDBOARD MIXED REALITY OS<br>MIXED REALITY COMO DEFAULT • 100% 3D SPATIAL • ZERO 2D</p>
+    <p style="margin-top:1rem;color:#00ff88;">GIROSCÓPIO FUSION + ACELERÔMETRO KALMAN<br>HAND TRACKING ONE EURO + KALMAN • TOUCH 6DOF DIRETO</p>
+    <div class="hint">
+      ▶ Coloque o celular no Cardboard<br>
+      ▶ Permita câmera + sensores<br>
+      ▶ Use mãos na câmera frontal para touch espacial<br>
+      ▶ NÃO é touch de celular - é depth 6DOF
+    </div>
+    <p style="margin-top:2rem;font-size:0.7rem;color:#555;">Toque em qualquer lugar para iniciar sensores (requer gesto)</p>
+  </div>
+
+  <!-- Video elements hidden for MR passthrough and hand tracking -->
+  <video id="hidden-video" style="display:none;" playsinline muted></video>
+
+  <script type="module" src="src/main.js"></script>
+  <script>
+    // PWA + fullscreen + wakelock
+    if ('serviceWorker' in navigator) {
+      // navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    }
+    // Wake lock para não apagar tela no Cardboard
+    let wakeLock = null;
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch(e){}
+    }
+    document.addEventListener('click', () => { requestWakeLock(); }, { once:true });
+    // Fullscreen ao tocar
+    document.addEventListener('touchend', async () => {
+      try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch(e){}
+    }, { once:true });
+  </script>
+</body>
+</html>

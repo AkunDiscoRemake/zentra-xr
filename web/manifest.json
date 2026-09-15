@@ -1,0 +1,20 @@
+{
+  "name": "PINA VR — Cardboard Mixed Reality OS",
+  "short_name": "PINA VR",
+  "description": "Cardboard Mixed Reality OS - Mixed Reality default, 100% 3D spatial, gyro+accel fusion, hand tracking OneEuro+Kalman, touch 6DOF direto, browser 3D multitask, Pina Saber",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#00ff88",
+  "categories": ["games", "entertainment", "utilities"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23000'/><text x='50' y='65' font-family='monospace' font-size='40' fill='%2300ff88' text-anchor='middle'>P</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ],
+  "permissions": ["camera", "gyroscope", "accelerometer", "magnetometer"],
+  "prefer_related_applications": false
+}
