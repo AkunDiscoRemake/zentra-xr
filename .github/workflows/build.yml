@@ -25,12 +25,10 @@ jobs:
         run: |
           echo "=== PINA VR Web Build ==="
           ls -la
-          # Se tiver vite, builda, senão só verifica arquivos
           if [ -f package.json ]; then
             npm install || echo "npm install falhou, continuando"
             npm run build || echo "vite build falhou, usando arquivos estáticos"
           fi
-          echo "Web files:"
           ls -R src || true
 
       - name: Upload Web Artifact
@@ -54,8 +52,19 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Android SDK - Robust
+        run: |
+          echo "=== Setup Android SDK - Robust Method ==="
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la $ANDROID_HOME || ls -la /usr/local/lib/android/sdk || true
+          # Tenta aceitar licenças de várias formas
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses --sdk_root=$ANDROID_HOME || true
+          # Instala plataformas necessárias se não existirem
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | head -n 50 || true
+          echo "SDK setup done"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -67,39 +76,35 @@ jobs:
           echo "=== Copiando Web para Android Assets ==="
           mkdir -p android/app/src/main/assets/pina
           cp -r web/* android/app/src/main/assets/pina/ || true
-          echo "Assets:"
           ls -lh android/app/src/main/assets/pina/
-          # Cria placeholder para hand_landmarker.task se não existir
           mkdir -p android/app/src/main/assets
           if [ ! -f android/app/src/main/assets/hand_landmarker.task ]; then
-            echo "Placeholder para hand_landmarker.task - baixe de https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+            echo "Placeholder hand_landmarker.task"
             touch android/app/src/main/assets/hand_landmarker.task
           fi
 
-      - name: Make gradlew executable (if exists)
+      - name: Make gradlew executable
         run: |
-          if [ -f android/gradlew ]; then
-            chmod +x android/gradlew
-          fi
-          # Se não tiver wrapper, cria um simples usando gradle
-          if [ ! -f android/gradlew ]; then
-            echo "Gradle wrapper não encontrado, usando gradle direto"
-            ls -la android/
-          fi
+          chmod +x android/gradlew || true
+          ls -la android/ | head -n 20
 
       - name: Build Debug APK
         working-directory: android
         run: |
           echo "=== PINA VR - Building APK Debug - Camera2 API ==="
+          echo "Checking Kotlin syntax..."
+          # Lista arquivos para garantir que existem
+          ls -R app/src/main/java/com/pinavr/os/
+          # Build
           if [ -f gradlew ]; then
-            ./gradlew assembleDebug --stacktrace
+            ./gradlew assembleDebug --stacktrace --info
           else
-            gradle assembleDebug --stacktrace
+            gradle assembleDebug --stacktrace --info
           fi
 
       - name: Build Release APK (unsigned)
         working-directory: android
-        if: success()
+        if: always()
         run: |
           echo "=== PINA VR - Building APK Release ==="
           if [ -f gradlew ]; then
@@ -109,12 +114,14 @@ jobs:
           fi
 
       - name: List APKs
+        if: always()
         run: |
           find android -name "*.apk" -type f | xargs ls -lh || echo "Nenhum APK encontrado"
+          find android/app/build -type f | head -n 100 || true
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
-        if: success()
+        if: success() || failure()
         with:
           name: pina-vr-debug-apk
           path: |
@@ -123,12 +130,14 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Upload Build Reports
+      - name: Upload Build Reports on Failure
         uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: build-reports
-          path: android/app/build/reports/
+          path: |
+            android/app/build/reports/
+            android/app/build/outputs/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -149,5 +158,6 @@ jobs:
           echo "- **Touch 6DOF direto** (não touch celular)" >> $GITHUB_STEP_SUMMARY
           echo "- **Browser 3D multitask** + YouTube/Discord" >> $GITHUB_STEP_SUMMARY
           echo "- **Pina Saber** Beat Saber clone" >> $GITHUB_STEP_SUMMARY
+          echo "- **Camera2 API** pura YUV_420_888" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "APKs em artifacts: pina-vr-debug-apk" >> $GITHUB_STEP_SUMMARY
