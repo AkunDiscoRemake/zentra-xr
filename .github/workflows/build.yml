@@ -7,6 +7,10 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   build-web:
     name: Build Web - PINA VR OS
@@ -49,6 +53,8 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          cat android/local.properties
+          ls -la $ANDROID_HOME/cmdline-tools/latest/bin/
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.5
@@ -58,8 +64,26 @@ jobs:
           cp -r web/* android/app/src/main/assets/pina/ || true
           mkdir -p android/app/src/main/assets
           touch android/app/src/main/assets/hand_landmarker.task
+          ls -R android/app/src/main/ | head -n 100
       - name: Make gradlew executable
         run: chmod +x android/gradlew || true
+
+      - name: Diagnose Project
+        working-directory: android
+        run: |
+          echo "=== Diagnose ==="
+          ls -la
+          cat settings.gradle.kts
+          cat build.gradle.kts
+          cat app/build.gradle.kts
+          echo "--- gradle.properties ---"
+          cat gradle.properties || true
+          echo "--- local.properties ---"
+          cat local.properties || true
+          echo "--- app/src ---"
+          find app/src -type f | head -n 50
+          echo "--- Checking for common issues ---"
+          ./gradlew tasks --all 2>&1 | head -n 200 || true
 
       - name: Build Debug APK
         working-directory: android
@@ -67,33 +91,60 @@ jobs:
           ./gradlew --version
           set -o pipefail
           ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build.log
-          echo "Exit: ${PIPESTATUS[0]}"
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "Exit: $EXIT_CODE"
           tail -n 1000 /tmp/build.log
-          # Save error summary
-          grep -i -A 10 "error" /tmp/build.log | head -n 200 > /tmp/error-summary.txt || true
-          cat /tmp/error-summary.txt
-          exit ${PIPESTATUS[0]}
+          # Save full log
+          cp /tmp/build.log $GITHUB_WORKSPACE/build.log || true
+          exit $EXIT_CODE
 
       - name: Upload log to paste.rs on failure
         if: failure()
         run: |
-          echo "=== Uploading build log to paste.rs ==="
-          # Try to upload full log
-          URL=$(cat /tmp/build.log | tail -n 2000 | curl -s --data-binary @- https://paste.rs || echo "failed")
-          echo "Log URL: $URL"
-          echo "Log URL: $URL" >> $GITHUB_STEP_SUMMARY
-          echo "### Build Failure Log" >> $GITHUB_STEP_SUMMARY
-          echo "Paste URL: $URL" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 500 /tmp/build.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          # Also try file.io
+          echo "=== Uploading logs ==="
+          # Try paste.rs
+          PASTE_URL=$(cat /tmp/build.log | tail -n 3000 | curl -s --data-binary @- https://paste.rs || echo "paste failed")
+          echo "Paste URL: $PASTE_URL"
+          echo "Paste URL: $PASTE_URL" >> $GITHUB_STEP_SUMMARY
+          # Try file.io
           curl -F "file=@/tmp/build.log" https://file.io 2>&1 | head -n 20 || true
-          # Save error summary to summary
+          echo "### Build Failure - Last 1000 lines" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 1000 /tmp/build.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           echo "### Error Summary" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat /tmp/error-summary.txt 2>&1 | head -n 200 >> $GITHUB_STEP_SUMMARY || true
+          grep -i -E "error|failed|exception" /tmp/build.log | head -n 100 >> $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Create issue with log on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Creating issue with build log..."
+          # Truncate log to 60000 chars for issue body (GitHub limit 65536)
+          tail -n 500 /tmp/build.log > /tmp/issue-body.txt
+          echo -e "\n\n---\nRun ID: ${{ github.run_id }}\nRun URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> /tmp/issue-body.txt
+          gh issue create --title "Build failure ${{ github.run_id }} - ${{ github.ref_name }}" --body-file /tmp/issue-body.txt --label "bug" 2>&1 || echo "Failed to create issue"
+          echo "Issue creation attempted"
+
+      - name: Push log to branch for debugging
+        if: failure()
+        run: |
+          echo "=== Pushing log to debug branch ==="
+          git config --global user.email "pina@github.com"
+          git config --global user.name "PINA Bot"
+          # Create new branch with log
+          BRANCH="debug-log-${{ github.run_id }}"
+          git checkout -b $BRANCH || git checkout -b debug-logs
+          mkdir -p /tmp/debug
+          cp /tmp/build.log ./build-failure-${{ github.run_id }}.log || true
+          cp /tmp/build.log ./last-failure.log || true
+          git add *.log || true
+          git commit -m "Build failure log ${{ github.run_id }}" || true
+          git push origin $BRANCH --force || git push origin debug-logs --force || echo "Push failed, trying with token"
+          echo "Pushed to $BRANCH"
 
       - name: List APKs
         if: always()
@@ -111,14 +162,15 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Upload Logs
+      - name: Upload Logs Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gradle-logs
           path: |
             /tmp/build.log
-            /tmp/error-summary.txt
+            build.log
+            android/app/build/reports/
           retention-days: 7
           if-no-files-found: warn
 
