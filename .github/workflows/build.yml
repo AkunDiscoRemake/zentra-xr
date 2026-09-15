@@ -56,14 +56,9 @@ jobs:
         run: |
           echo "=== Setup Android SDK - Robust Method ==="
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           ls -la $ANDROID_HOME || ls -la /usr/local/lib/android/sdk || true
-          # Tenta aceitar licenças de várias formas
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses --sdk_root=$ANDROID_HOME || true
-          # Instala plataformas necessárias se não existirem
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | head -n 50 || true
           echo "SDK setup done"
 
       - name: Setup Gradle
@@ -82,46 +77,54 @@ jobs:
             echo "Placeholder hand_landmarker.task"
             touch android/app/src/main/assets/hand_landmarker.task
           fi
+          # Cria local.properties com sdk dir
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          cat android/local.properties
 
       - name: Make gradlew executable
         run: |
           chmod +x android/gradlew || true
           ls -la android/ | head -n 20
 
-      - name: Build Debug APK
+      - name: Build Debug APK with Logs
         working-directory: android
         run: |
           echo "=== PINA VR - Building APK Debug - Camera2 API ==="
-          echo "Checking Kotlin syntax..."
-          # Lista arquivos para garantir que existem
           ls -R app/src/main/java/com/pinavr/os/
-          # Build
-          if [ -f gradlew ]; then
-            ./gradlew assembleDebug --stacktrace --info
-          else
-            gradle assembleDebug --stacktrace --info
-          fi
+          echo "--- Gradle version ---"
+          ./gradlew --version || gradle --version
+          echo "--- Building ---"
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace --info 2>&1 | tee /tmp/gradle-build.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "Gradle exit code: $EXIT_CODE"
+          echo "--- Last 500 lines of log ---"
+          tail -n 500 /tmp/gradle-build.log || true
+          # Salva log no summary também
+          echo "### Gradle Build Log (tail)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 200 /tmp/gradle-build.log >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          exit $EXIT_CODE
 
       - name: Build Release APK (unsigned)
         working-directory: android
         if: always()
         run: |
           echo "=== PINA VR - Building APK Release ==="
-          if [ -f gradlew ]; then
-            ./gradlew assembleRelease --stacktrace || echo "Release build falhou (sem keystore), ok"
-          else
-            gradle assembleRelease --stacktrace || echo "Release build falhou"
-          fi
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee /tmp/gradle-release.log || echo "Release build falhou (sem keystore), ok"
+          tail -n 200 /tmp/gradle-release.log || true
 
       - name: List APKs
         if: always()
         run: |
           find android -name "*.apk" -type f | xargs ls -lh || echo "Nenhum APK encontrado"
-          find android/app/build -type f | head -n 100 || true
+          ls -lh android/app/build/outputs/apk/debug/ 2>&1 || true
+          cat /tmp/gradle-build.log | grep -A 5 -B 5 "error" | head -n 100 || true
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
-        if: success() || failure()
+        if: always()
         with:
           name: pina-vr-debug-apk
           path: |
@@ -130,16 +133,17 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Upload Build Reports on Failure
+      - name: Upload Build Logs
         uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
-          name: build-reports
+          name: gradle-logs
           path: |
+            /tmp/gradle-build.log
+            /tmp/gradle-release.log
             android/app/build/reports/
-            android/app/build/outputs/
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   build-all:
     name: PINA VR - Full Build Summary
