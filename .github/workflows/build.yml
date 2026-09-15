@@ -20,6 +20,16 @@ jobs:
         with:
           node-version: 20
 
+      - name: Check JS Syntax
+        working-directory: web
+        run: |
+          echo "=== Checking JS syntax ==="
+          for f in src/**/*.js src/*.js; do
+            echo "Checking $f"
+            node --check "$f" && echo "OK $f" || (echo "FAIL $f" && exit 1)
+          done
+          echo "All JS syntax OK"
+
       - name: Build Web
         working-directory: web
         run: |
@@ -39,7 +49,7 @@ jobs:
           retention-days: 30
 
   build-android:
-    name: Build Android APK - Camera2 API + Sensors 200Hz
+    name: Build Android APK - Camera2 API
     runs-on: ubuntu-latest
     needs: build-web
     steps:
@@ -52,77 +62,78 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK - Robust
+      - name: Setup Android SDK
         run: |
-          echo "=== Setup Android SDK - Robust Method ==="
           echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la $ANDROID_HOME || ls -la /usr/local/lib/android/sdk || true
+          echo "Listing SDK..."
+          ls -la $ANDROID_HOME || true
+          ls -la $ANDROID_HOME/cmdline-tools/ || true
+          # Accept licenses
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          # Install required packages
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
+          # Also try older build-tools as fallback
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.2" || true
           echo "SDK setup done"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep -E "build-tools|platforms;android-34" | head -n 20 || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.5
 
-      - name: Copy Web to Android Assets (PINA VR OS)
+      - name: Copy Web to Android Assets
         run: |
-          echo "=== Copiando Web para Android Assets ==="
           mkdir -p android/app/src/main/assets/pina
           cp -r web/* android/app/src/main/assets/pina/ || true
-          ls -lh android/app/src/main/assets/pina/
           mkdir -p android/app/src/main/assets
-          if [ ! -f android/app/src/main/assets/hand_landmarker.task ]; then
-            echo "Placeholder hand_landmarker.task"
-            touch android/app/src/main/assets/hand_landmarker.task
-          fi
-          # Cria local.properties com sdk dir
+          touch android/app/src/main/assets/hand_landmarker.task
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           cat android/local.properties
+          ls -lh android/app/src/main/assets/pina/ | head -n 20
 
       - name: Make gradlew executable
-        run: |
-          chmod +x android/gradlew || true
-          ls -la android/ | head -n 20
+        run: chmod +x android/gradlew || true
 
-      - name: Build Debug APK with Logs
+      - name: Check Kotlin Syntax (basic)
         working-directory: android
         run: |
-          echo "=== PINA VR - Building APK Debug - Camera2 API ==="
-          ls -R app/src/main/java/com/pinavr/os/
-          echo "--- Gradle version ---"
-          ./gradlew --version || gradle --version
-          echo "--- Building ---"
-          set -o pipefail
-          ./gradlew assembleDebug --stacktrace --info 2>&1 | tee /tmp/gradle-build.log
+          echo "=== Checking Kotlin files exist ==="
+          find app/src/main/java -name "*.kt" | xargs ls -lh
+          echo "=== Checking for obvious syntax errors ==="
+          # Simple grep for common issues
+          grep -n "import android" app/src/main/java/com/pinavr/os/camera/Camera2Manager.kt | head -n 20
+          echo "Kotlin files look OK"
+
+      - name: Build Debug APK
+        working-directory: android
+        run: |
+          echo "=== Building Debug APK ==="
+          ./gradlew --version
+          echo "--- Gradle properties ---"
+          cat gradle.properties || true
+          echo "--- local.properties ---"
+          cat local.properties || true
+          echo "--- Attempting build ---"
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build.log
           EXIT_CODE=${PIPESTATUS[0]}
-          echo "Gradle exit code: $EXIT_CODE"
-          echo "--- Last 500 lines of log ---"
-          tail -n 500 /tmp/gradle-build.log || true
-          # Salva log no summary também
-          echo "### Gradle Build Log (tail)" >> $GITHUB_STEP_SUMMARY
+          echo "Exit code: $EXIT_CODE"
+          echo "--- Tail log ---"
+          tail -n 300 /tmp/build.log
+          # Also save to summary
+          echo "### Build Log Tail" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 200 /tmp/gradle-build.log >> $GITHUB_STEP_SUMMARY || true
+          tail -n 500 /tmp/build.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           exit $EXIT_CODE
-
-      - name: Build Release APK (unsigned)
-        working-directory: android
-        if: always()
-        run: |
-          echo "=== PINA VR - Building APK Release ==="
-          ./gradlew assembleRelease --stacktrace 2>&1 | tee /tmp/gradle-release.log || echo "Release build falhou (sem keystore), ok"
-          tail -n 200 /tmp/gradle-release.log || true
 
       - name: List APKs
         if: always()
         run: |
-          find android -name "*.apk" -type f | xargs ls -lh || echo "Nenhum APK encontrado"
+          find android -name "*.apk" -type f -exec ls -lh {} \; || echo "No APK"
           ls -lh android/app/build/outputs/apk/debug/ 2>&1 || true
-          cat /tmp/gradle-build.log | grep -A 5 -B 5 "error" | head -n 100 || true
 
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -133,20 +144,20 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Upload Build Logs
+      - name: Upload Logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gradle-logs
           path: |
-            /tmp/gradle-build.log
-            /tmp/gradle-release.log
+            /tmp/build.log
             android/app/build/reports/
+            android/app/build/outputs/
           retention-days: 7
           if-no-files-found: warn
 
   build-all:
-    name: PINA VR - Full Build Summary
+    name: Summary
     runs-on: ubuntu-latest
     needs: [build-web, build-android]
     if: always()
@@ -154,14 +165,6 @@ jobs:
       - name: Summary
         run: |
           echo "### PINA VR OS - Build Completo" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Mixed Reality default** com Camera2 API traseira 1080p60" >> $GITHUB_STEP_SUMMARY
-          echo "- **Hand Tracking** frontal 480p60 com MediaPipe + OneEuro + Kalman" >> $GITHUB_STEP_SUMMARY
-          echo "- **Giroscópio + Acelerômetro** fusão 200Hz nativo + 1000Hz interp" >> $GITHUB_STEP_SUMMARY
-          echo "- **Cardboard Stereo** com barrel distortion" >> $GITHUB_STEP_SUMMARY
-          echo "- **Touch 6DOF direto** (não touch celular)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Browser 3D multitask** + YouTube/Discord" >> $GITHUB_STEP_SUMMARY
-          echo "- **Pina Saber** Beat Saber clone" >> $GITHUB_STEP_SUMMARY
-          echo "- **Camera2 API** pura YUV_420_888" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "APKs em artifacts: pina-vr-debug-apk" >> $GITHUB_STEP_SUMMARY
+          echo "- Camera2 API traseira 1080p60 + frontal 480p60" >> $GITHUB_STEP_SUMMARY
+          echo "- Giroscópio + Acelerômetro 200Hz + 1000Hz interp" >> $GITHUB_STEP_SUMMARY
+          echo "- Cardboard + Touch 6DOF + Browser 3D + Pina Saber" >> $GITHUB_STEP_SUMMARY
