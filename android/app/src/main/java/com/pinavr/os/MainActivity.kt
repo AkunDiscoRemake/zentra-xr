@@ -10,23 +10,27 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.pinavr.os.camera.Camera2Manager
 import com.pinavr.os.camera.HandTrackingService
+import com.pinavr.os.camera.PassthroughCameraService
 import com.pinavr.os.sensors.SensorFusion
 
 /**
- * PINA VR - MainActivity - Cardboard Mixed Reality OS
+ * PINA VR - MainActivity - Cardboard Mixed Reality OS com Camera2 API
  * - WebView imersivo com sensores nativos 200Hz
- * - Mixed Reality como default (câmera traseira via WebRTC no JS)
- * - Hand tracking nativo + fallback JS
+ * - Camera2 API pura: traseira passthrough MR + frontal hand tracking 60fps
+ * - Mixed Reality como default
  * - Dev API injetada via JavascriptInterface
- * - Tudo 3D spatial, zero 2D nativo (só WebView)
+ * - Tudo 3D spatial, zero 2D nativo
  */
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var sensorFusion: SensorFusion
+    private lateinit var camera2Manager: Camera2Manager
     private var handTrackingService: HandTrackingService? = null
+    private var passthroughService: PassthroughCameraService? = null
 
     private val permissions = arrayOf(
         Manifest.permission.CAMERA,
@@ -49,31 +53,46 @@ class MainActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
 
-        // Layout simples: só WebView
         setContentView(R.layout.activity_main)
         webView = findViewById(R.id.webview)
 
         setupWebView()
         checkPermissions()
 
+        // Sensores - melhor giroscópio possível 200Hz nativo
         sensorFusion = SensorFusion(this)
         sensorFusion.onSensorsUpdate = { quat, gyro, accel, mag ->
-            // Envia para JS via evaluateJavascript (alta frequência)
             runOnUiThread {
-                if (webView != null) {
-                    val json = sensorFusion.getJson()
-                    webView.evaluateJavascript("if(window.PinaNativeBridge) window.PinaNativeBridge.onSensorData('$json'); if(window.PinaVR && window.PinaVR._native) window.PinaVR._native.onSensors([${quat[0]},${quat[1]},${quat[2]},${quat[3]}],[${gyro[0]},${gyro[1]},${gyro[2]}],[${accel[0]},${accel[1]},${accel[2]}],[${mag[0]},${mag[1]},${mag[2]}]);", null)
-                }
+                val json = sensorFusion.getJson()
+                webView.evaluateJavascript(
+                    "if(window.PinaNativeBridge) window.PinaNativeBridge.onSensorData('$json');" +
+                    "if(window.PinaVR && window.PinaVR._native) window.PinaVR._native.onSensors([${quat[0]},${quat[1]},${quat[2]},${quat[3]}],[${gyro[0]},${gyro[1]},${gyro[2]}],[${accel[0]},${accel[1]},${accel[2]}],[${mag[0]},${mag[1]},${mag[2]}]);",
+                    null
+                )
             }
         }
 
-        // Hand tracking nativo (opcional, JS faz fallback)
+        // Camera2 API Manager - controle total
+        camera2Manager = Camera2Manager(this)
+
+        // Hand tracking frontal - Camera2 API 640x480 60fps
         handTrackingService = HandTrackingService(this)
         handTrackingService?.onHandsDetected = { handsJson ->
             runOnUiThread {
-                webView.evaluateJavascript("if(window.PinaNativeBridge) window.PinaNativeBridge.onHandData('$handsJson');", null)
+                // Escapa JSON para JS
+                val escaped = handsJson.replace("'", "\\'")
+                webView.evaluateJavascript("if(window.PinaNativeBridge) window.PinaNativeBridge.onHandData('$escaped');", null)
             }
         }
+
+        // Passthrough traseira - Camera2 API 1920x1080 60fps para MR
+        passthroughService = PassthroughCameraService(this)
+        passthroughService?.onFrameYuv = { yuv, w, h ->
+            // Para futuro: enviar frame MR para processamento de profundidade
+            // Por enquanto, o JS usa getUserMedia para passthrough, mas temos Camera2 nativo pronto
+        }
+
+        logCamera2Info()
     }
 
     private fun setupWebView() {
@@ -95,10 +114,8 @@ class MainActivity : AppCompatActivity() {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
-                // Auto concede câmera para MR passthrough + hand tracking
                 request.grant(request.resources)
             }
-
             override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
                 android.util.Log.d("PinaVR Web", "${consoleMessage.message()} -- ${consoleMessage.sourceId()}:${consoleMessage.lineNumber()}")
                 return true
@@ -106,46 +123,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                return false // deixa navegar dentro do WebView (para browser espacial)
-            }
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = false
         }
 
-        // Native Bridge - Dev API para Android
         webView.addJavascriptInterface(NativeBridgeInterface(), "PinaNative")
 
-        // Carrega PINA VR OS - tenta local primeiro, fallback para servidor dev
-        // Em produção, coloque os arquivos web em android/app/src/main/assets/pina/
-        // e use file:///android_asset/pina/index.html
         try {
             webView.loadUrl("file:///android_asset/pina/index.html")
         } catch (e: Exception) {
-            // Fallback para teste local: carrega do localhost se estiver rodando python server
-            // Para testar no Arena: use preview da web
-            webView.loadUrl("https://pinavr.local") // será substituído
-            // Tenta carregar index.html embutido como string se assets não existir
             loadEmbeddedPina()
         }
     }
 
     private fun loadEmbeddedPina() {
-        // Se não tiver assets, carrega uma página que redireciona para o servidor de dev
-        // ou mostra instruções
         val html = """
             <html><body style="background:#000;color:#0f8;padding:20px;font-family:monospace">
-            <h1>PINA VR OS</h1>
-            <p>Coloque os arquivos web em android/app/src/main/assets/pina/</p>
-            <p>Ou rode: <code>python3 -m http.server 8000</code> em web/ e abra o IP no WebView</p>
-            <p>Para testar agora, o app vai tentar carregar do preview.</p>
+            <h1>PINA VR OS - Camera2 API</h1>
+            <p>Coloque web/ em android/app/src/main/assets/pina/</p>
+            <p>Camera2 API: traseira 1080p60 MR + frontal 480p60 Hand Tracking</p>
             <script>
-            // Tenta detectar se está no Arena preview
-            const host = window.location.hostname;
-            if (host.includes('e2b.app')) {
-                // Está no preview, recarrega para index real
+            if (window.location.hostname.includes('e2b.app')) {
                 window.location.href = '/index.html';
-            } else {
-                // Fallback: cria um iframe para o servidor local
-                document.body.innerHTML += '<p>Conecte o celular na mesma rede e acesse o IP do dev server</p>';
             }
             </script>
             </body></html>
@@ -164,26 +162,36 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == PERM_CODE) {
-            onPermissionsGranted()
-        }
+        if (requestCode == PERM_CODE) onPermissionsGranted()
     }
 
     private fun onPermissionsGranted() {
-        // Inicia sensores nativos
         sensorFusion.start()
-        // handTrackingService?.start(this) // opcional, comentado para usar JS MediaPipe que é mais estável no WebView
+        // Inicia Camera2 API
+        try {
+            handTrackingService?.start()
+            passthroughService?.start()
+            Toast.makeText(this, "PINA VR - Camera2 API ativa - MR + Hand Tracking 60fps", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.util.Log.e("PinaVR", "Camera2 start error", e)
+            Toast.makeText(this, "Camera2 erro: ${e.message}", Toast.LENGTH_LONG).show()
+        }
 
-        // Carrega PINA VR se ainda não carregou
-        if (webView.url == null || webView.url!!.contains("pinavr.local")) {
-            // Tenta carregar do assets novamente
-            webView.postDelayed({
-                try {
-                    webView.loadUrl("file:///android_asset/pina/index.html")
-                } catch (e: Exception) {
-                    Toast.makeText(this, "PINA VR: coloque web/ em assets/pina/", Toast.LENGTH_LONG).show()
-                }
-            }, 500)
+        webView.postDelayed({
+            try {
+                webView.loadUrl("file:///android_asset/pina/index.html")
+            } catch (e: Exception) {
+                Toast.makeText(this, "PINA VR: coloque web/ em assets/pina/", Toast.LENGTH_LONG).show()
+            }
+        }, 500)
+    }
+
+    private fun logCamera2Info() {
+        try {
+            val info = camera2Manager.getCameraInfo()
+            android.util.Log.i("PinaCamera2", "Cameras disponíveis:\n$info")
+        } catch (e: Exception) {
+            android.util.Log.e("PinaCamera2", "getCameraInfo error", e)
         }
     }
 
@@ -203,24 +211,28 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         sensorFusion.stop()
         handTrackingService?.stop()
+        passthroughService?.stop()
         webView.destroy()
     }
 
-    // Interface exposta para JavaScript - Dev API Nativa Android
     inner class NativeBridgeInterface {
+        @JavascriptInterface
+        fun getSensors(): String = sensorFusion.getJson()
 
         @JavascriptInterface
-        fun getSensors(): String {
-            return sensorFusion.getJson()
+        fun getCamera2Info(): String {
+            return try {
+                camera2Manager.getCameraInfo()
+            } catch (e: Exception) {
+                "{\"error\":\"${e.message}\"}"
+            }
         }
 
         @JavascriptInterface
         fun vibrate(patternJson: String) {
             try {
                 val vibrator = getSystemService(VIBRATOR_SERVICE) as android.os.Vibrator
-                // patternJson: "[100,50,100]" ou número simples
                 if (patternJson.startsWith("[")) {
-                    // array
                     val cleaned = patternJson.replace("[","").replace("]","").split(",").map { it.trim().toLong() }.toLongArray()
                     vibrator.vibrate(android.os.VibrationEffect.createWaveform(cleaned, -1))
                 } else {
@@ -232,13 +244,10 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun setMRMode(mode: String) {
-            // mode: "mixed" | "vr"
-            android.util.Log.i("PinaNative", "MR Mode set to $mode")
-        }
-
-        @JavascriptInterface
-        fun requestPermission(perm: String) {
-            // Já tratado
+            android.util.Log.i("PinaNative", "MR Mode $mode - Camera2 API")
+            if (mode == "mixed") {
+                passthroughService?.start()
+            }
         }
 
         @JavascriptInterface
@@ -248,7 +257,27 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun getDeviceInfo(): String {
-            return """{"model":"${android.os.Build.MODEL}","sdk":${android.os.Build.VERSION.SDK_INT},"isCardboard":true}"""
+            return """{"model":"${android.os.Build.MODEL}","sdk":${android.os.Build.VERSION.SDK_INT},"isCardboard":true,"camera2":true,"rear":"1920x1080@60","front":"640x480@60"}"""
+        }
+
+        @JavascriptInterface
+        fun startCamera2(facing: String): String {
+            return try {
+                if (facing == "front") {
+                    handTrackingService?.start()
+                    "{\"status\":\"front started\"}"
+                } else {
+                    passthroughService?.start()
+                    "{\"status\":\"rear started\"}"
+                }
+            } catch (e: Exception) {
+                "{\"error\":\"${e.message}\"}"
+            }
+        }
+
+        @JavascriptInterface
+        fun stopCamera2(facing: String) {
+            if (facing == "front") handTrackingService?.stop() else passthroughService?.stop()
         }
     }
 }

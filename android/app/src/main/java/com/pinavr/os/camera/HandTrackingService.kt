@@ -1,39 +1,44 @@
 package com.pinavr.os.camera
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
+import android.media.Image
 import android.util.Log
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleOwner
+import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 
 /**
- * PINA VR - Hand Tracking Service Nativo
- * Usa CameraX + MediaPipe Tasks Vision nativo Android
- * - Câmera frontal para mãos
- * - One Euro + Kalman já aplicados no JS, mas aqui também faz pré-filtragem
- * - Envia landmarks para WebView
+ * PINA VR - Hand Tracking Service - Camera2 API + MediaPipe
+ * Usa Camera2Manager puro (não CameraX) para controle total
+ * - Câmera frontal 640x480 60fps
+ * - YUV_420_888 -> RGB -> MediaPipe
+ * - OneEuro + Kalman no JS, mas pré-filtragem aqui
  */
 
 class HandTrackingService(private val context: Context) {
 
+    private val camera2Manager = Camera2Manager(context)
     private var handLandmarker: HandLandmarker? = null
-    private var cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private var cameraProvider: ProcessCameraProvider? = null
+    private var isActive = false
 
     var onHandsDetected: ((handsJson: String) -> Unit)? = null
-    var isActive = false
+    var onFrameProcessed: ((bitmap: Bitmap) -> Unit)? = null
 
-    fun start(lifecycleOwner: LifecycleOwner) {
+    fun start() {
+        if (isActive) return
+
         try {
+            // Inicializa MediaPipe
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("hand_landmarker.task") // colocar em assets
+                .setModelAssetPath("hand_landmarker.task")
                 .build()
 
             val options = HandLandmarker.HandLandmarkerOptions.builder()
@@ -44,87 +49,122 @@ class HandTrackingService(private val context: Context) {
                 .setMinHandPresenceConfidence(0.5f)
                 .setMinTrackingConfidence(0.5f)
                 .setResultListener { result, _ ->
-                    // Converte resultado para JSON para WebView
                     val hands = result.landmarks()
                     if (hands.isNotEmpty()) {
                         val json = buildString {
                             append("[")
                             hands.forEachIndexed { idx, landmarks ->
                                 if (idx > 0) append(",")
-                                append("{\"index\":$idx,\"keypoints\":[")
+                                append("{\"index\":$idx,\"handedness\":\"${result.handednesses().getOrNull(idx)?.getOrNull(0)?.categoryName() ?: "Unknown"}\",\"keypoints\":[")
                                 landmarks.forEachIndexed { lIdx, lm ->
                                     if (lIdx > 0) append(",")
-                                    append("{\"x\":${lm.x()},\"y\":${lm.y()},\"z\":${lm.z()}}")
+                                    append("{\"x\":${lm.x()},\"y\":${lm.y()},\"z\":${lm.z()},\"visibility\":1}")
                                 }
                                 append("]}")
                             }
                             append("]")
                         }
                         onHandsDetected?.invoke(json)
+                        Log.d("PinaHands", "Detected ${hands.size} hands")
                     } else {
                         onHandsDetected?.invoke("[]")
                     }
                 }
-                .setErrorListener { e -> Log.e("PinaHands", "MediaPipe erro", e) }
+                .setErrorListener { e -> Log.e("PinaHands", "MediaPipe error", e) }
                 .build()
 
             handLandmarker = HandLandmarker.createFromOptions(context, options)
-
-            // CameraX
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener({
-                cameraProvider = cameraProviderFuture.get()
-                bindCamera(lifecycleOwner)
-            }, ContextCompat.getMainExecutor(context))
-
-            isActive = true
-            Log.i("PinaHands", "HandTrackingService iniciado - MediaPipe nativo")
+            Log.i("PinaHands", "MediaPipe HandLandmarker criado - Camera2 API")
 
         } catch (e: Exception) {
-            Log.e("PinaHands", "Falha ao iniciar hand tracking nativo, fallback para JS", e)
-            // Fallback: deixa JS fazer hand tracking via WebRTC
+            Log.e("PinaHands", "Falha MediaPipe, usando fallback", e)
+            // Fallback: sem MediaPipe nativo, JS fará via WebRTC
+        }
+
+        // Inicia câmera frontal via Camera2 API pura
+        camera2Manager.startFrontCamera { image ->
+            try {
+                processImage(image)
+            } catch (e: Exception) {
+                Log.e("PinaHands", "processImage error", e)
+            } finally {
+                image.close()
+            }
+        }
+
+        isActive = true
+        Log.i("PinaHands", "HandTrackingService Camera2 iniciado")
+    }
+
+    private fun processImage(image: Image) {
+        // YUV_420_888 -> Bitmap
+        val bitmap = yuvToBitmap(image) ?: return
+
+        // Rotaciona se necessário (front camera espelhada)
+        // val matrix = android.graphics.Matrix().apply { postRotate(270f); postScale(-1f, 1f) }
+        // val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+
+        onFrameProcessed?.invoke(bitmap)
+
+        // Envia para MediaPipe
+        try {
+            handLandmarker?.let { landmarker ->
+                val mpImage = BitmapImageBuilder(bitmap).build()
+                landmarker.detectAsync(mpImage, System.currentTimeMillis())
+            }
+        } catch (e: Exception) {
+            Log.e("PinaHands", "detectAsync error", e)
         }
     }
 
-    private fun bindCamera(lifecycleOwner: LifecycleOwner) {
+    private fun yuvToBitmap(image: Image): Bitmap? {
         try {
-            val provider = cameraProvider ?: return
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+            val yBuffer = image.planes[0].buffer
+            val uBuffer = image.planes[1].buffer
+            val vBuffer = image.planes[2].buffer
 
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .build()
+            val ySize = yBuffer.remaining()
+            val uSize = uBuffer.remaining()
+            val vSize = vBuffer.remaining()
 
-            imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                val mpImage = androidx.camera.core.ImageProxy.toBitmap(imageProxy)
-                // Converte para MPImage (simplificado - precisaria converter Bitmap para MPImage)
-                // handLandmarker?.detectAsync(mpImage, System.currentTimeMillis())
-                imageProxy.close()
+            val nv21 = ByteArray(ySize + uSize + vSize)
+
+            yBuffer.get(nv21, 0, ySize)
+            // Simplificado: assume NV21 com VU intercalado
+            // Para produção, usar libyuv ou RenderScript
+            var pos = ySize
+            val uvPixelStride = image.planes[1].pixelStride
+            val uvRowStride = image.planes[1].rowStride
+
+            // Intercala V e U
+            for (row in 0 until image.height/2) {
+                for (col in 0 until image.width/2) {
+                    val vuPos = row * uvRowStride + col * uvPixelStride
+                    if (vuPos < vSize && vuPos < uSize) {
+                        nv21[pos++] = vBuffer.get(vuPos)
+                        if (pos < nv21.size) nv21[pos++] = uBuffer.get(vuPos)
+                    }
+                }
             }
 
-            provider.unbindAll()
-            provider.bindToLifecycle(lifecycleOwner, cameraSelector, imageAnalysis)
-
+            val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+            val out = ByteArrayOutputStream()
+            yuvImage.compressToJpeg(Rect(0,0,image.width,image.height), 80, out)
+            val bytes = out.toByteArray()
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         } catch (e: Exception) {
-            Log.e("PinaHands", "bindCamera erro", e)
+            Log.e("PinaHands", "yuvToBitmap error", e)
+            return null
         }
     }
 
     fun stop() {
         isActive = false
-        cameraProvider?.unbindAll()
+        camera2Manager.stopFront()
         handLandmarker?.close()
-        cameraExecutor.shutdown()
+        handLandmarker = null
+        Log.i("PinaHands", "HandTrackingService parado")
     }
-}
 
-// Extensão helper
-fun androidx.camera.core.ImageProxy.toBitmap(): android.graphics.Bitmap {
-    // Implementação simplificada
-    val buffer = planes[0].buffer
-    val bytes = ByteArray(buffer.remaining())
-    buffer.get(bytes)
-    return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        ?: android.graphics.Bitmap.createBitmap(1,1, android.graphics.Bitmap.Config.ARGB_8888)
+    fun getCameraInfo(): String = camera2Manager.getCameraInfo()
 }

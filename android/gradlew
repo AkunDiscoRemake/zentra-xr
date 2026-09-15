@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# Simple gradlew that uses system gradle if wrapper jar missing
+set -e
+if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+  exec java -jar gradle/wrapper/gradle-wrapper.jar "$@"
+else
+  echo "Wrapper jar not found, trying system gradle..."
+  if command -v gradle >/dev/null 2>&1; then
+    exec gradle "$@"
+  else
+    echo "Gradle not found, installing via sdkman or apt..."
+    # Fallback: try to download gradle
+    GRADLE_VERSION=8.5
+    if [ ! -d "/tmp/gradle-$GRADLE_VERSION" ]; then
+      echo "Downloading Gradle $GRADLE_VERSION..."
+      wget -q https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip -O /tmp/gradle.zip
+      unzip -q /tmp/gradle.zip -d /tmp/
+    fi
+    exec /tmp/gradle-$GRADLE_VERSION/bin/gradle "$@"
+  fi
+fi
